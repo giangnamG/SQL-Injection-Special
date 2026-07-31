@@ -195,6 +195,7 @@ def detect_vector(store: VectorStore,
         if res:
             _log("[vector] CHỐT %s/%s (baseline=%.2fs, slow=%.2fs, threshold=%.2fs)"
                  % (v.dbms, v.name, res.baseline, res.slow, res.threshold))
+            _log("[vector] template: %s" % v.template)
             return res
 
     raise VectorError(
