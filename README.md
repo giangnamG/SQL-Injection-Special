@@ -18,8 +18,11 @@ Xem [DESIGN.md](DESIGN.md) để biết đầy đủ kiến trúc và các quy�
   oracle giả.
 - **Tự dò DBMS** (`--dbms auto`).
 - **Dùng hoàn toàn tamper của sqlmap** — 76 tamper chạy qua một shim `lib/core/` gọn.
+- **Đa luồng** — đọc song song nhiều vị trí ký tự cùng lúc (mặc định 10, chỉnh qua
+  `--threads`), giống Intruder của Burp. Nhanh vài lần khi target xử lý song song.
 - **Chế độ hex** — bắt được cả ký tự multibyte (byte >127).
-- **`verify()` bằng hex literal** — chốt toàn chuỗi bằng 1 request.
+- **`verify()` bằng hex literal** — chốt toàn chuỗi bằng 1 request; nếu KHÔNG KHỚP khi chạy
+  đa luồng, tool khuyên giảm `--threads` (server nghẽn có thể làm sai phép đo thời gian).
 
 ## Dùng nhanh
 
@@ -31,6 +34,10 @@ python main.py -r request.txt --query "select content from final_flag limit 1"
 # Ép DBMS / vector, dùng tamper:
 python main.py -r request.txt --dbms mysql --vector mysql-inline-sleep
 python main.py -r request.txt --tamper between,space2comment
+
+# Tăng tốc: đa luồng (mặc định 10) + giảm delay khi mạng ổn:
+python main.py -r request.txt --threads 10 --delay 1.5
+python main.py -r request.txt --threads 1          # tuần tự (tin cậy nhất)
 ```
 
 ## Cấu trúc

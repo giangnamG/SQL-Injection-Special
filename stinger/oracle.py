@@ -14,6 +14,7 @@ Trách nhiệm:
 
 from __future__ import annotations
 
+import threading
 from typing import Callable, Optional
 
 from stinger.vectors import Vector, DetectResult
@@ -38,6 +39,9 @@ class Oracle:
         self.verbose = verbose
         self._log = log or (lambda m: None)
         self.n_req = 0
+        # ask() có thể được gọi từ nhiều thread (đa luồng theo vị trí ký tự).
+        # measure() của transport đã thread-safe; ở đây chỉ cần khóa counter + log.
+        self._lock = threading.Lock()
 
         # vùng xám quanh threshold -> đo lại để tăng tin cậy (re-measure)
         # rộng = 20% của khoảng [baseline, baseline+sleeptime]
@@ -47,7 +51,8 @@ class Oracle:
     def _timed(self, condition: str) -> float:
         payload = self.vector.render(condition, self.sleeptime)
         dt = self.measure(payload)
-        self.n_req += 1
+        with self._lock:
+            self.n_req += 1
         return dt
 
     # -- hỏi true/false ----------------------------------------------------
@@ -78,5 +83,6 @@ class Oracle:
 
         res = hits * 2 > n
         if self.verbose:
-            self._log("      %-60s -> %s" % (condition[:60], res))
+            with self._lock:
+                self._log("      %-60s -> %s" % (condition[:60], res))
         return res

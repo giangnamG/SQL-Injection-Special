@@ -63,6 +63,8 @@ def main(argv=None):
                    help="danh sách tamper cách nhau dấu phẩy (vd between,space2comment)")
     p.add_argument("--delay", type=float, default=3.0,
                    help="số giây sleep (mặc định 3)")
+    p.add_argument("--threads", type=int, default=10,
+                   help="số vị trí ký tự đọc song song (mặc định 10, đặt 1 để tuần tự)")
     p.add_argument("--votes", type=int, default=1, choices=(1, 3),
                    help="3 = bỏ phiếu đa số (dùng khi mạng nhiễu)")
     p.add_argument("--pause", type=float, default=0.0,
@@ -143,7 +145,8 @@ def main(argv=None):
     t0 = time.time()
     try:
         data, meta = extract(oracle, a.query, dialect, mode=a.mode,
-                             maxlen=a.maxlen, progress=progress, log=log)
+                             maxlen=a.maxlen, threads=a.threads,
+                             progress=progress, log=log)
     except ExtractError as e:
         print("\n[!] %s" % e)
         return 3
@@ -166,6 +169,10 @@ def main(argv=None):
     print("verify    : %s" % ("KHỚP" if ok else "KHÔNG KHỚP (!)"))
     print("chi phí   : %d request, %.0fs" % (transport.n_req, time.time() - t0))
     print("=" * 60)
+    if not ok and a.threads > 1:
+        print("[!] verify KHÔNG KHỚP - kết quả có thể sai do nhiễu khi chạy %d luồng.\n"
+              "    Thử lại với --threads 1 (hoặc số nhỏ hơn) để tăng độ tin cậy."
+              % a.threads)
     return 0 if ok else 1
 
 

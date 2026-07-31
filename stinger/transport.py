@@ -19,6 +19,7 @@ requests tự thêm.
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import Optional
 
@@ -52,8 +53,24 @@ class Transport:
         self.pause = pause
         self.verify_tls = verify_tls
         self.n_req = 0
-        self.sess = requests.Session()
+        # Thread-safe: mỗi thread một Session riêng (requests.Session không an toàn khi
+        # nhiều thread cùng ghi). n_req tăng qua lock.
+        self._local = threading.local()
+        self._lock = threading.Lock()
         # requests không tự thêm Content-Length/Host - dùng đúng header ta đưa.
+
+    @property
+    def sess(self) -> requests.Session:
+        """Session riêng cho mỗi thread (tạo lazy)."""
+        s = getattr(self._local, "sess", None)
+        if s is None:
+            s = requests.Session()
+            self._local.sess = s
+        return s
+
+    def _bump(self):
+        with self._lock:
+            self.n_req += 1
 
     def _headers_for(self, req: HttpRequest) -> dict:
         """Chuyển list header -> dict cho requests. Bỏ Host (requests tự đặt theo URL,
@@ -86,7 +103,7 @@ class Transport:
                     verify=self.verify_tls,
                     allow_redirects=False,
                 )
-                self.n_req += 1
+                self._bump()
                 if self.pause:
                     time.sleep(self.pause)
                 return resp
@@ -115,7 +132,7 @@ class Transport:
                     allow_redirects=False,
                 )
                 dt = time.time() - t0
-                self.n_req += 1
+                self._bump()
                 if self.pause:
                     time.sleep(self.pause)
                 return dt

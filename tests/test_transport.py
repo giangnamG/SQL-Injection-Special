@@ -14,7 +14,7 @@ import re
 import sys
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -146,6 +146,29 @@ def test_content_length_correct_over_http():
         assert dt >= _SLEEP * 0.5, "sleep không kích hoạt -> Content-Length có thể sai"
         dt2 = transport.measure("(if(1=2,sleep(%g),1))" % _SLEEP)
         assert dt2 < _SLEEP * 0.5
+    finally:
+        srv.shutdown()
+
+
+def test_multithread_extract_correct():
+    """Đa luồng: server ĐA LUỒNG (mô phỏng target thật xử lý song song) -> đọc đúng flag
+    và nhanh hơn tuần tự. Đây là bảo vệ chống hồi quy cho tính năng --threads."""
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    port = srv.server_address[1]
+    th = threading.Thread(target=srv.serve_forever, daemon=True)
+    th.start()
+    try:
+        base = parse_request(_burp_request(port))
+        transport = Transport(base, timeout=10)
+        store = VectorStore.load()
+        detect = detect_vector(store, transport.measure, sleeptime=_SLEEP,
+                               dbms="mysql", margin=0.5)
+        oracle = Oracle(detect, transport.measure, sleeptime=_SLEEP)
+        # threads=8 -> đọc song song 8 vị trí; server đa luồng nên không xếp hàng.
+        data, meta = extract(oracle, "select content from flag",
+                             store.dialect("mysql"), mode="hex", threads=8)
+        assert data == SECRET, "đa luồng đọc sai: got %r" % data
+        assert verify(oracle, "select content from flag", store.dialect("mysql"), data)
     finally:
         srv.shutdown()
 
