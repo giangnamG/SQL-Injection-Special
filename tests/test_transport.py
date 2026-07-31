@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Test transport.py END-TO-END bang mot HTTP server cuc bo mo phong target time-based.
+Test transport.py END-TO-END bằng một HTTP server cục bộ mô phỏng target time-based.
 
-Server that (localhost) nhan {"id": payload}, danh gia dieu kien, sleep THAT khi dung.
--> kiem chung ca stack: parse Burp -> chen payload -> Content-Length -> gui HTTP -> do tre.
+Server thật (localhost) nhận {"id": payload}, đánh giá điều kiện, sleep THẬT khi đúng.
+-> kiểm chứng cả stack: parse Burp -> chèn payload -> Content-Length -> gửi HTTP -> đo trễ.
 
-Chay:  python tests/test_transport.py
+Chạy:  python tests/test_transport.py
 """
 
 import json
@@ -25,12 +25,12 @@ from stinger.oracle import Oracle
 from stinger.extract import extract, verify
 
 SECRET = b"HTB{l0c4l_3nd2end}"
-_SLEEP = 0.3  # ngan de test nhanh
+_SLEEP = 0.3  # ngắn để test nhanh
 
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
-        pass  # im lang
+        pass  # im lặng
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -46,11 +46,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(b'{"status":"ok"}')  # response luon giong nhau (blind)
+        self.wfile.write(b'{"status":"ok"}')  # response luôn giống nhau (blind)
 
 
 def _eval_sql(payload, secret):
-    """Danh gia dieu kien inference trong payload -> co sleep khong."""
+    """Đánh giá điều kiện inference trong payload -> có sleep không."""
     m = re.search(r"\bif\((.*),sleep", payload)
     if not m:
         m = re.search(r"\bif\((.*),0,", payload)
@@ -114,13 +114,13 @@ def test_end_to_end_extract():
         base = parse_request(_burp_request(port))
         transport = Transport(base, timeout=10)
 
-        # 1) do & chot vector (dbms auto)
+        # 1) đo & chốt vector (dbms auto)
         store = VectorStore.load()
         detect = detect_vector(store, transport.measure, sleeptime=_SLEEP,
                                dbms="mysql", margin=0.5)
         assert detect.vector.dbms == "mysql"
 
-        # 2) trich xuat flag qua HTTP that
+        # 2) trích xuất flag qua HTTP thật
         oracle = Oracle(detect, transport.measure, sleeptime=_SLEEP)
         data, meta = extract(oracle, "select content from flag",
                              store.dialect("mysql"), mode="hex")
@@ -135,15 +135,15 @@ def test_end_to_end_extract():
 
 
 def test_content_length_correct_over_http():
-    """Server doc Content-Length de lay body - neu sai, payload bi cat -> flag sai.
-    Test nay pass tuc la Content-Length duoc tinh dung khi payload dai."""
+    """Server đọc Content-Length để lấy body - nếu sai, payload bị cắt -> flag sai.
+    Test này pass tức là Content-Length được tính đúng khi payload dài."""
     srv, port = _start_server()
     try:
         base = parse_request(_burp_request(port))
         transport = Transport(base, timeout=10)
-        # payload dai hon marker rat nhieu
+        # payload dài hơn marker rất nhiều
         dt = transport.measure("(if(1=1,sleep(%g),1))" % _SLEEP)
-        assert dt >= _SLEEP * 0.5, "sleep khong kich hoat -> Content-Length co the sai"
+        assert dt >= _SLEEP * 0.5, "sleep không kích hoạt -> Content-Length có thể sai"
         dt2 = transport.measure("(if(1=2,sleep(%g),1))" % _SLEEP)
         assert dt2 < _SLEEP * 0.5
     finally:

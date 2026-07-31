@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Test cho stinger/request.py - parse Burp request, chen payload, tinh lai Content-Length.
+Test cho stinger/request.py - parse Burp request, chèn payload, tính lại Content-Length.
 
-Chay:  python -m pytest tests/test_request.py -v
-Hoac:  python tests/test_request.py     (self-contained, khong can pytest)
+Chạy:  python -m pytest tests/test_request.py -v
+Hoặc:  python tests/test_request.py     (self-contained, không cần pytest)
 """
 
 import os
@@ -19,7 +19,7 @@ from stinger.request import (
     INJECTION_MARK,
 )
 
-# Mot Burp request POST JSON co marker '*' o vi tri id (giong target that).
+# Một Burp request POST JSON có marker '*' ở vị trí id (giống target thật).
 BURP_POST = (
     "POST /action.php HTTP/1.1\r\n"
     "Host: 154.57.164.72:32442\r\n"
@@ -51,7 +51,7 @@ def test_parse_basic():
 
 def test_url_scheme_and_port():
     r = parse_request(BURP_POST)
-    # port 32442 != 443 -> http
+    # port 32442 != 443 -> http (cổng 32442 khác 443)
     assert r.url() == "http://154.57.164.72:32442/action.php"
 
 
@@ -79,35 +79,35 @@ def test_no_marker_raises():
     except RequestParseError:
         pass
     else:
-        raise AssertionError("phai raise khi khong co marker")
+        raise AssertionError("phải raise khi không có marker")
 
 
 def test_payload_injection_and_content_length():
-    """Diem quan trong nhat: Content-Length PHAI duoc tinh lai theo body moi."""
+    """Điểm quan trọng nhất: Content-Length PHẢI được tính lại theo body mới."""
     r = parse_request(BURP_POST)
     payload = "(if(1=1,sleep(3),1))"
     injected = r.with_payload(payload)
 
-    # payload da thay vao marker
+    # payload đã thay vào marker
     expected_body = '{"id":"%s"}' % payload
     assert injected.body == expected_body
 
-    # Content-Length moi = so BYTE cua body moi (khong phai 10 cu)
+    # Content-Length mới = số BYTE của body mới (không phải 10 cũ)
     new_len = len(expected_body.encode("utf-8"))
     assert injected.get_header("Content-Length") == str(new_len)
     assert injected.get_header("Content-Length") != "10"
 
 
 def test_immutability():
-    """with_payload khong duoc sua doi request goc."""
+    """with_payload không được sửa đổi request gốc."""
     r = parse_request(BURP_POST)
     _ = r.with_payload("XXX")
-    assert r.body == '{"id":"*"}'  # goc khong doi
+    assert r.body == '{"id":"*"}'  # gốc không đổi
     assert r.get_header("Content-Length") == "10"
 
 
 def test_content_length_bytes_not_chars():
-    """Payload chua ky tu multibyte -> Content-Length tinh theo byte."""
+    """Payload chứa ký tự multibyte -> Content-Length tính theo byte."""
     raw = BURP_POST.replace('{"id":"*"}', '{"id":"*"}')
     r = parse_request(raw)
     payload = "café"  # 'é' = 2 byte UTF-8
@@ -121,7 +121,7 @@ def test_roundtrip_preserves_crlf():
     out = r.to_text()
     assert "\r\n" in out
     assert out.startswith("POST /action.php HTTP/1.1\r\n")
-    # dong trong ngan header voi body
+    # dòng trống ngăn header với body
     assert "\r\n\r\n" in out
 
 
@@ -132,7 +132,7 @@ def test_header_order_preserved():
 
 
 def test_lf_only_request():
-    """Request da bi chuan hoa ve LF (\\n) van parse duoc."""
+    """Request đã bị chuẩn hóa về LF (\\n) vẫn parse được."""
     raw = BURP_POST.replace("\r\n", "\n")
     r = parse_request(raw)
     assert r.method == "POST"
@@ -141,7 +141,7 @@ def test_lf_only_request():
 
 
 def _run_all():
-    """Chay tat ca test khong can pytest."""
+    """Chạy tất cả test không cần pytest."""
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
     for t in tests:

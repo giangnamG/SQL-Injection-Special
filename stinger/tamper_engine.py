@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-Tamper engine - load dong cac tamper script cua sqlmap va chain chung len payload.
+Tamper engine - load động các tamper script của sqlmap và chain chúng lên payload.
 
-Muc tieu: DUNG HOAN TOAN tamper cua sqlmap (da copy vao ./tamper/), khong viet lai.
-Cac tamper import `from lib.core.* import ...` -> chay duoc nho shim tai ./lib/core/.
+Mục tiêu: DÙNG HOÀN TOÀN tamper của sqlmap (đã copy vào ./tamper/), không viết lại.
+Các tamper import `from lib.core.* import ...` -> chạy được nhờ shim tại ./lib/core/.
 
-Contract cua moi tamper (chuan sqlmap):
-    __priority__ = PRIORITY.XXX          # do uu tien khi chain (cao chay truoc)
-    def dependencies(): ...              # (tuy chon)
-    def tamper(payload, **kwargs): ...   # bien doi payload roi return
+Contract của mỗi tamper (chuẩn sqlmap):
+    __priority__ = PRIORITY.XXX          # độ ưu tiên khi chain (cao chạy trước)
+    def dependencies(): ...              # (tùy chọn)
+    def tamper(payload, **kwargs): ...   # biến đổi payload rồi return
 
-Cach chain (theo sqlmap): sort theo __priority__ GIAM DAN (priority cao xu ly truoc).
-Khi priority bang nhau, giu nguyen thu tu nguoi dung khai bao.
+Cách chain (theo sqlmap): sort theo __priority__ GIẢM DẦN (priority cao xử lý trước).
+Khi priority bằng nhau, giữ nguyên thứ tự người dùng khai báo.
 """
 
 from __future__ import annotations
@@ -20,23 +20,23 @@ import importlib.util
 import os
 import sys
 
-# Bao dam repo-root nam trong sys.path de `import lib.core.*` cua tamper hoat dong.
+# Bảo đảm repo-root nằm trong sys.path để `import lib.core.*` của tamper hoạt động.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 _TAMPER_DIR = os.path.join(_REPO_ROOT, "tamper")
 
-# priority mac dinh khi tamper khong khai bao __priority__ (giong sqlmap: NORMAL=0)
+# priority mặc định khi tamper không khai báo __priority__ (giống sqlmap: NORMAL=0)
 _DEFAULT_PRIORITY = 0
 
 
 class TamperError(Exception):
-    """Loi khi load hoac chay tamper."""
+    """Lỗi khi load hoặc chạy tamper."""
 
 
 class TamperModule:
-    """Boc mot tamper da load: giu ham tamper(), priority, ten."""
+    """Bọc một tamper đã load: giữ hàm tamper(), priority, tên."""
 
     __slots__ = ("name", "func", "priority", "module")
 
@@ -54,7 +54,7 @@ class TamperModule:
 
 
 def available_tampers():
-    """Liet ke ten cac tamper co san trong ./tamper/ (bo __init__)."""
+    """Liệt kê tên các tamper có sẵn trong ./tamper/ (bỏ __init__)."""
     if not os.path.isdir(_TAMPER_DIR):
         return []
     names = []
@@ -65,36 +65,36 @@ def available_tampers():
 
 
 def load_tamper(name):
-    """Load mot tamper theo ten (vd 'between'). Tra ve TamperModule.
+    """Load một tamper theo tên (vd 'between'). Trả về TamperModule.
 
-    Raise TamperError neu khong tim thay file, thieu ham tamper(), hoac import loi.
+    Raise TamperError nếu không tìm thấy file, thiếu hàm tamper(), hoặc import lỗi.
     """
     path = os.path.join(_TAMPER_DIR, name + ".py")
     if not os.path.isfile(path):
         raise TamperError(
-            "khong tim thay tamper '%s' (tim tai %s)" % (name, path)
+            "không tìm thấy tamper '%s' (tìm tại %s)" % (name, path)
         )
 
-    # Load module tu file, dat ten rieng de khong dung do voi package khac.
+    # Load module từ file, đặt tên riêng để không đụng độ với package khác.
     mod_name = "stinger_tamper_%s" % name
     spec = importlib.util.spec_from_file_location(mod_name, path)
     if spec is None or spec.loader is None:
-        raise TamperError("khong tao duoc spec cho tamper '%s'" % name)
+        raise TamperError("không tạo được spec cho tamper '%s'" % name)
 
     module = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(module)
-    except Exception as e:  # import lib.core.* loi, syntax, ...
+    except Exception as e:  # import lib.core.* lỗi, syntax, ...
         raise TamperError(
-            "loi khi load tamper '%s': %s: %s" % (name, type(e).__name__, e)
+            "lỗi khi load tamper '%s': %s: %s" % (name, type(e).__name__, e)
         ) from e
 
     func = getattr(module, "tamper", None)
     if not callable(func):
-        raise TamperError("tamper '%s' khong co ham tamper(payload, **kwargs)" % name)
+        raise TamperError("tamper '%s' không có hàm tamper(payload, **kwargs)" % name)
 
     priority = getattr(module, "__priority__", _DEFAULT_PRIORITY)
-    # __priority__ co the la thuoc tinh cua enum PRIORITY -> da la int
+    # __priority__ có thể là thuộc tính của enum PRIORITY -> đã là int
     if not isinstance(priority, int):
         priority = _DEFAULT_PRIORITY
 
@@ -102,10 +102,10 @@ def load_tamper(name):
 
 
 class TamperChain:
-    """Chuoi tamper da sap xep, ap dung tuan tu len payload.
+    """Chuỗi tamper đã sắp xếp, áp dụng tuần tự lên payload.
 
-    Thu tu ap dung (theo sqlmap): priority GIAM DAN. Khi priority bang nhau, giu
-    nguyen thu tu nguoi dung khai bao (stable sort).
+    Thứ tự áp dụng (theo sqlmap): priority GIẢM DẦN. Khi priority bằng nhau, giữ
+    nguyên thứ tự người dùng khai báo (stable sort).
     """
 
     def __init__(self, tampers):
@@ -113,22 +113,22 @@ class TamperChain:
 
     @classmethod
     def from_names(cls, names):
-        """Tao chain tu danh sach ten tamper (theo thu tu nguoi dung khai bao)."""
+        """Tạo chain từ danh sách tên tamper (theo thứ tự người dùng khai báo)."""
         loaded = [load_tamper(n) for n in names]
-        # Python sort la STABLE: cac tamper cung priority giu nguyen thu tu goc.
-        # reverse=True -> priority cao truoc (giong sqlmap).
+        # Python sort là STABLE: các tamper cùng priority giữ nguyên thứ tự gốc.
+        # reverse=True -> priority cao trước (giống sqlmap).
         loaded.sort(key=lambda t: t.priority, reverse=True)
         return cls(loaded)
 
     def apply(self, payload, **kwargs):
-        """Ap dung lan luot tung tamper len payload."""
+        """Áp dụng lần lượt từng tamper lên payload."""
         result = payload
         for t in self.tampers:
             result = t.apply(result, **kwargs)
         return result
 
     def order(self):
-        """Tra ve danh sach (name, priority) theo thu tu se ap dung - de debug/hien thi."""
+        """Trả về danh sách (name, priority) theo thứ tự sẽ áp dụng - để debug/hiển thị."""
         return [(t.name, t.priority) for t in self.tampers]
 
     def __len__(self):
@@ -139,5 +139,5 @@ class TamperChain:
 
 
 def apply_tampers(payload, names, **kwargs):
-    """Tien ich: tao chain tu ten va ap dung ngay len payload."""
+    """Tiện ích: tạo chain từ tên và áp dụng ngay lên payload."""
     return TamperChain.from_names(names).apply(payload, **kwargs)

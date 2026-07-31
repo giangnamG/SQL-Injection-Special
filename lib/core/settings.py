@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Shim cho lib.core.settings - chi cac hang so ma tamper script su dung.
-Gia tri sao nguyen van tu sqlmap/lib/core/settings.py.
+Shim cho lib.core.settings - chỉ các hằng số mà tamper script sử dụng.
+Giá trị sao nguyên văn từ sqlmap/lib/core/settings.py.
 """
 
 REPLACEMENT_MARKER = "__REPLACEMENT__"

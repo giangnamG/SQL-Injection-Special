@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Test cho stinger/tamper_engine.py - chung minh tamper cua sqlmap chay THAT qua shim.
+Test cho stinger/tamper_engine.py - chứng minh tamper của sqlmap chạy THẬT qua shim.
 
-Chay:  python tests/test_tamper_engine.py
+Chạy:  python tests/test_tamper_engine.py
 """
 
 import os
@@ -20,7 +20,7 @@ from stinger.tamper_engine import (
 
 def test_available_tampers_found():
     names = available_tampers()
-    assert len(names) >= 70, "phai co ~76 tamper, thay %d" % len(names)
+    assert len(names) >= 70, "phải có ~76 tamper, thấy %d" % len(names)
     assert "between" in names
     assert "space2comment" in names
 
@@ -28,7 +28,7 @@ def test_available_tampers_found():
 def test_between_replaces_gt():
     """between.py: '>' -> 'NOT BETWEEN 0 AND', '=' -> 'BETWEEN # AND #'."""
     t = load_tamper("between")
-    # doctest goc cua sqlmap:
+    # doctest gốc của sqlmap:
     assert t.apply("1 AND A > B--") == "1 AND A NOT BETWEEN 0 AND B--"
     assert t.apply("1 AND A = B--") == "1 AND A BETWEEN B AND B--"
 
@@ -40,73 +40,73 @@ def test_space2comment_replaces_spaces():
 
 
 def test_randomcase_uses_kb_keywords():
-    """randomcase.py DUNG kb.keywords - day la ca kho nhat (phu thuoc knowledge base).
+    """randomcase.py DÙNG kb.keywords - đây là ca khó nhất (phụ thuộc knowledge base).
 
-    Neu shim kb hoat dong: tu khoa SQL (SELECT, FROM) se bi doi hoa/thuong ngau nhien,
-    con dinh danh thuong (id) giu nguyen.
+    Nếu shim kb hoạt động: từ khóa SQL (SELECT, FROM) sẽ bị đổi hoa/thường ngẫu nhiên,
+    còn định danh thường (id) giữ nguyên.
     """
     import random
     random.seed(0)
     t = load_tamper("randomcase")
     out = t.apply("SELECT id FROM users")
-    # Ket qua ngau nhien nhung: phai khac input (da bien doi), va giu do dai.
+    # Kết quả ngẫu nhiên nhưng: phải khác input (đã biến đổi), và giữ độ dài.
     assert len(out) == len("SELECT id FROM users")
-    # 'SELECT' va 'FROM' la tu khoa -> phai bi doi case (khong con toan hoa)
+    # 'SELECT' và 'FROM' là từ khóa -> phải bị đổi case (không còn toàn hoa)
     assert out != "SELECT id FROM users"
-    # so sanh khong phan biet hoa thuong phai bang nhau (chi doi case)
+    # so sánh không phân biệt hoa thường phải bằng nhau (chỉ đổi case)
     assert out.lower() == "select id from users"
 
 
 def test_randomcase_kb_loaded():
-    """Xac nhan kb.keywords thuc su duoc nap (khong rong)."""
+    """Xác nhận kb.keywords thực sự được nạp (không rỗng)."""
     from lib.core.data import kb
-    assert len(kb.keywords) > 100, "kb.keywords phai duoc nap tu keywords.txt"
+    assert len(kb.keywords) > 100, "kb.keywords phải được nạp từ keywords.txt"
     assert "SELECT" in kb.keywords
     assert "UNION" in kb.keywords
 
 
 def test_chain_between_then_space2comment():
-    """Chain 2 tamper - chung minh co che chain hoat dong."""
+    """Chain 2 tamper - chứng minh cơ chế chain hoạt động."""
     chain = TamperChain.from_names(["between", "space2comment"])
     assert len(chain) == 2
-    # between chay truoc (HIGHEST) roi space2comment (LOW)
+    # between chạy trước (HIGHEST) rồi space2comment (LOW)
     out = chain.apply("1 AND A > B")
     # between: '1 AND A > B' -> '1 AND A NOT BETWEEN 0 AND B'
-    # space2comment: khoang trang -> /**/
+    # space2comment: khoảng trắng -> /**/
     assert "/**/" in out
     assert "BETWEEN" in out
-    assert " " not in out  # het khoang trang
+    assert " " not in out  # hết khoảng trắng
 
 
 def test_chain_priority_order():
-    """between (HIGHEST=100) phai xep truoc space2comment (LOW=-10) du khai bao nguoc."""
-    # Khai bao nguoc thu tu -> chain van phai xep between truoc theo priority.
+    """between (HIGHEST=100) phải xếp trước space2comment (LOW=-10) dù khai báo ngược."""
+    # Khai báo ngược thứ tự -> chain vẫn phải xếp between trước theo priority.
     chain = TamperChain.from_names(["space2comment", "between"])
     order = chain.order()
     names_in_order = [n for n, _ in order]
-    assert names_in_order[0] == "between", "between (priority cao) phai chay truoc"
+    assert names_in_order[0] == "between", "between (priority cao) phải chạy trước"
     assert names_in_order[1] == "space2comment"
 
 
 def test_apply_tampers_shortcut():
-    # between doi '> <so>' -> 'NOT BETWEEN 0 AND <so>' (nhanh regex thu 2 can so/chuoi/ham,
-    # khong doi identifier tran nhu 'B' - dung hanh vi sqlmap goc).
+    # between đổi '> <số>' -> 'NOT BETWEEN 0 AND <số>' (nhánh regex thứ 2 cần số/chuỗi/hàm,
+    # không đổi identifier trần như 'B' - đúng hành vi sqlmap gốc).
     out = apply_tampers("A > 1", ["between"])
     assert out == "A NOT BETWEEN 0 AND 1"
 
 
 def test_empty_payload():
-    """Tamper voi payload rong khong duoc crash."""
+    """Tamper với payload rỗng không được crash."""
     t = load_tamper("between")
     assert t.apply("") == ""
 
 
 def test_several_simple_tampers_load():
-    """Load thu mot loat tamper pho bien de bat loi import shim som."""
+    """Load thử một loạt tamper phổ biến để bắt lỗi import shim sớm."""
     for name in ["equaltolike", "greatest", "charencode", "space2plus",
                  "apostrophemask", "uppercase", "lowercase", "multiplespaces"]:
-        t = load_tamper(name)  # chi can khong raise
-        assert callable(t.func), "%s khong load duoc" % name
+        t = load_tamper(name)  # chỉ cần không raise
+        assert callable(t.func), "%s không load được" % name
 
 
 def _run_all():

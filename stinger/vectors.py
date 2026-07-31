@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-Quan ly kho vector time-based blind (data/vectors.yaml) + logic do DBMS/vector.
+Quản lý kho vector time-based blind (data/vectors.yaml) + logic đo DBMS/vector.
 
-Cau truc 2 tang: moi DBMS co `dialect` (manh cu phap de extract lap rap) va `vectors`
-(danh sach template sleep). Xem data/vectors.yaml.
+Cấu trúc 2 tầng: mỗi DBMS có `dialect` (mạnh cú pháp để extract lắp ráp) và `vectors`
+(danh sách template sleep). Xem data/vectors.yaml.
 
-Co che do (theo DESIGN muc 7):
-  - Voi moi vector, XAC NHAN bang test TRUE + FALSE:
-        [INFERENCE]=1=1  -> PHAI cham (~sleeptime)
-        [INFERENCE]=1=2  -> PHAI nhanh
-    Chi nhan vector khi ca hai dung. Loai oracle gia (delay do loi cu phap / lag).
-  - Vector dau tien vuot qua -> chot cho toan bo khai thac.
-  - Tu do DBMS (--dbms auto): thu vector cua lan luot tung DBMS toi khi co cai dat.
+Cơ chế đo (theo DESIGN mục 7):
+  - Với mỗi vector, XÁC NHẬN bằng test TRUE + FALSE:
+        [INFERENCE]=1=1  -> PHẢI chậm (~sleeptime)
+        [INFERENCE]=1=2  -> PHẢI nhanh
+    Chỉ nhận vector khi cả hai đúng. Loại oracle giả (delay do lỗi cú pháp / lag).
+  - Vector đầu tiên vượt qua -> chốt cho toàn bộ khai thác.
+  - Tự dò DBMS (--dbms auto): thử vector của lần lượt từng DBMS tới khi có cái đạt.
 
-Module KHONG tu gui request. No nhan mot callable `measure(payload) -> dt_giay` (do
-transport/oracle cung cap) nen test duoc bang mock offline.
+Module KHÔNG tự gửi request. Nó nhận một callable `measure(payload) -> dt_giay` (do
+transport/oracle cung cấp) nên test được bằng mock offline.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ import yaml
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DEFAULT_VECTORS = os.path.join(_REPO_ROOT, "data", "vectors.yaml")
 
-# dieu kien hang so de xac nhan vector
+# điều kiện hằng số để xác nhận vector
 COND_TRUE = "1=1"
 COND_FALSE = "1=2"
 
@@ -42,7 +42,7 @@ class VectorError(Exception):
 
 @dataclass
 class Vector:
-    """Mot vector sleep da gan DBMS + dialect cua no."""
+    """Một vector sleep đã gắn DBMS + dialect của nó."""
     dbms: str
     name: str
     template: str
@@ -50,13 +50,13 @@ class Vector:
     dialect: dict
 
     def render(self, inference: str, sleeptime: float) -> str:
-        """Dung payload thuc tu template: thay [INFERENCE], [SLEEPTIME], [RANDNUM], [RANDSTR].
+        """Dựng payload thực từ template: thay [INFERENCE], [SLEEPTIME], [RANDNUM], [RANDSTR].
 
-        [RANDNUM]/[RANDSTR] sinh moi lan render (tranh cache, dat alias duy nhat).
+        [RANDNUM]/[RANDSTR] sinh mỗi lần render (tránh cache, đặt alias duy nhất).
         """
         out = self.template
         out = out.replace("[INFERENCE]", inference)
-        # sleeptime: bo .0 thua cho so nguyen (sleep(3) dep hon sleep(3.0))
+        # sleeptime: bỏ .0 thừa cho số nguyên (sleep(3) đẹp hơn sleep(3.0))
         st = ("%g" % sleeptime)
         out = out.replace("[SLEEPTIME]", st)
         out = out.replace("[RANDNUM]", str(random.randint(1000, 9999)))
@@ -69,18 +69,18 @@ def _rand_str(n: int = 4) -> str:
 
 
 class VectorStore:
-    """Nap va truy van kho vector tu YAML."""
+    """Nạp và truy vấn kho vector từ YAML."""
 
     def __init__(self, data: dict):
         if not isinstance(data, dict) or not data:
-            raise VectorError("vectors.yaml rong hoac sai dinh dang")
+            raise VectorError("vectors.yaml rỗng hoặc sai định dạng")
         self.data = data
 
     @classmethod
     def load(cls, path: Optional[str] = None) -> "VectorStore":
         path = path or _DEFAULT_VECTORS
         if not os.path.isfile(path):
-            raise VectorError("khong tim thay file vector: %s" % path)
+            raise VectorError("không tìm thấy file vector: %s" % path)
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
         return cls(data)
@@ -90,12 +90,12 @@ class VectorStore:
 
     def dialect(self, dbms: str) -> dict:
         if dbms not in self.data:
-            raise VectorError("khong co DBMS '%s' trong kho vector" % dbms)
+            raise VectorError("không có DBMS '%s' trong kho vector" % dbms)
         return self.data[dbms].get("dialect", {})
 
     def vectors_for(self, dbms: str) -> list[Vector]:
         if dbms not in self.data:
-            raise VectorError("khong co DBMS '%s' trong kho vector" % dbms)
+            raise VectorError("không có DBMS '%s' trong kho vector" % dbms)
         block = self.data[dbms]
         dialect = block.get("dialect", {})
         result = []
@@ -110,44 +110,44 @@ class VectorStore:
         return result
 
     def get_vector(self, name: str) -> Vector:
-        """Tim vector theo ten (cho co --vector). Duyet moi DBMS."""
+        """Tìm vector theo tên (cho cờ --vector). Duyệt mọi DBMS."""
         for dbms in self.dbms_list():
             for v in self.vectors_for(dbms):
                 if v.name == name:
                     return v
-        raise VectorError("khong tim thay vector ten '%s'" % name)
+        raise VectorError("không tìm thấy vector tên '%s'" % name)
 
 
-# --------------------------------------------------------------------------- do
+# --------------------------------------------------------------------------- đo
 @dataclass
 class DetectResult:
     vector: Vector
-    baseline: float          # do tre nen (dieu kien FALSE)
-    slow: float              # do tre khi TRUE (co sleep)
-    threshold: float         # nguong phan biet
+    baseline: float          # độ trễ nền (điều kiện FALSE)
+    slow: float              # độ trễ khi TRUE (có sleep)
+    threshold: float         # ngưỡng phân biệt
 
 
 def confirm_vector(vector: Vector,
                    measure: Callable[[str], float],
                    sleeptime: float,
                    margin: float = 0.5) -> Optional[DetectResult]:
-    """Xac nhan mot vector bang test TRUE + FALSE.
+    """Xác nhận một vector bằng test TRUE + FALSE.
 
-    measure(payload) -> so giay phan hoi.
-    Tra ve DetectResult neu vector hop le (TRUE cham & FALSE nhanh), None neu khong.
+    measure(payload) -> số giây phản hồi.
+    Trả về DetectResult nếu vector hợp lệ (TRUE chậm & FALSE nhanh), None nếu không.
 
-    Tieu chi:
-      - FALSE (1=2): dt_false  ~ baseline (khong sleep)
-      - TRUE  (1=1): dt_true  >= dt_false + sleeptime*margin  (co sleep)
+    Tiêu chí:
+      - FALSE (1=2): dt_false  ~ baseline (không sleep)
+      - TRUE  (1=1): dt_true  >= dt_false + sleeptime*margin  (có sleep)
     """
-    # FALSE truoc de lay baseline
+    # FALSE trước để lấy baseline
     dt_false = measure(vector.render(COND_FALSE, sleeptime))
     dt_true = measure(vector.render(COND_TRUE, sleeptime))
 
-    # nguong: giua baseline va baseline+sleeptime
+    # ngưỡng: giữa baseline và baseline+sleeptime
     threshold = dt_false + sleeptime * margin
 
-    # TRUE phai vuot nguong, FALSE phai duoi nguong
+    # TRUE phải vượt ngưỡng, FALSE phải dưới ngưỡng
     if dt_true >= threshold and dt_false < threshold:
         return DetectResult(
             vector=vector,
@@ -165,39 +165,39 @@ def detect_vector(store: VectorStore,
                   forced_vector: Optional[str] = None,
                   margin: float = 0.5,
                   log: Optional[Callable[[str], None]] = None) -> DetectResult:
-    """Do va chot mot vector.
+    """Đo và chốt một vector.
 
-    - forced_vector: neu co, chi xac nhan dung vector do (cho --vector).
-    - dbms='auto': thu lan luot moi DBMS. Nguoc lai chi thu DBMS chi dinh.
-    - Tra ve DetectResult da chot. Raise VectorError neu khong vector nao dung.
+    - forced_vector: nếu có, chỉ xác nhận đúng vector đó (cho --vector).
+    - dbms='auto': thử lần lượt mọi DBMS. Ngược lại chỉ thử DBMS chỉ định.
+    - Trả về DetectResult đã chốt. Raise VectorError nếu không vector nào đúng.
     """
     def _log(msg):
         if log:
             log(msg)
 
-    # Chon danh sach vector se thu
+    # Chọn danh sách vector sẽ thử
     if forced_vector:
         candidates = [store.get_vector(forced_vector)]
-        _log("[vector] ep dung vector '%s'" % forced_vector)
+        _log("[vector] ép dùng vector '%s'" % forced_vector)
     elif dbms == "auto":
         candidates = []
         for db in store.dbms_list():
             candidates.extend(store.vectors_for(db))
-        _log("[vector] do tu dong tren %d DBMS (%d vector)"
+        _log("[vector] dò tự động trên %d DBMS (%d vector)"
              % (len(store.dbms_list()), len(candidates)))
     else:
         candidates = store.vectors_for(dbms)
-        _log("[vector] do %d vector cua DBMS '%s'" % (len(candidates), dbms))
+        _log("[vector] dò %d vector của DBMS '%s'" % (len(candidates), dbms))
 
     for v in candidates:
-        _log("[vector] thu %s/%s ..." % (v.dbms, v.name))
+        _log("[vector] thử %s/%s ..." % (v.dbms, v.name))
         res = confirm_vector(v, measure, sleeptime, margin)
         if res:
-            _log("[vector] CHOT %s/%s (baseline=%.2fs, slow=%.2fs, threshold=%.2fs)"
+            _log("[vector] CHỐT %s/%s (baseline=%.2fs, slow=%.2fs, threshold=%.2fs)"
                  % (v.dbms, v.name, res.baseline, res.slow, res.threshold))
             return res
 
     raise VectorError(
-        "khong vector nao vuot qua xac nhan TRUE/FALSE. "
-        "Kiem tra: marker dung cho? payload co bi filter? sleep co hoat dong?"
+        "không vector nào vượt qua xác nhận TRUE/FALSE. "
+        "Kiểm tra: marker đúng chỗ? payload có bị filter? sleep có hoạt động?"
     )

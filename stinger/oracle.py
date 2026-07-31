@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Oracle - tang suy luan true/false dua tren thoi gian, dung mot Vector da chot.
+Oracle - tầng suy luận true/false dựa trên thời gian, dùng một Vector đã chốt.
 
-Khac script cu (draft/): oracle KHONG hardcode payload. No nhan:
-  - mot Vector (da chot qua buoc detect) de render payload tu dieu kien [INFERENCE]
-  - mot callable measure(payload)->giay (do transport cung cap) -> test duoc offline
+Khác script cũ (draft/): oracle KHÔNG hardcode payload. Nó nhận:
+  - một Vector (đã chốt qua bước detect) để render payload từ điều kiện [INFERENCE]
+  - một callable measure(payload)->giây (do transport cung cấp) -> test được offline
 
-Trach nhiem:
-  - ask(condition) -> True/False: render vector voi inference=condition, do thoi gian,
-    so voi threshold. Ho tro bo phieu (votes) va do lai khi map mo.
-  - giu threshold da do tu buoc detect (rieng cho vector da chot).
+Trách nhiệm:
+  - ask(condition) -> True/False: render vector với inference=condition, đo thời gian,
+    so với threshold. Hỗ trợ bỏ phiếu (votes) và đo lại khi mập mờ.
+  - giữ threshold đã đo từ bước detect (riêng cho vector đã chốt).
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from stinger.vectors import Vector, DetectResult
 
 
 class Oracle:
-    """Hoi database cau hoi true/false qua do tre thoi gian."""
+    """Hỏi database câu hỏi true/false qua độ trễ thời gian."""
 
     def __init__(self,
                  detect: DetectResult,
@@ -39,23 +39,23 @@ class Oracle:
         self._log = log or (lambda m: None)
         self.n_req = 0
 
-        # vung xam quanh threshold -> do lai de tang tin cay (re-measure)
-        # rong = 20% cua khoang [baseline, baseline+sleeptime]
+        # vùng xám quanh threshold -> đo lại để tăng tin cậy (re-measure)
+        # rộng = 20% của khoảng [baseline, baseline+sleeptime]
         self._gray = 0.2 * sleeptime
 
-    # -- do mot lan --------------------------------------------------------
+    # -- đo một lần --------------------------------------------------------
     def _timed(self, condition: str) -> float:
         payload = self.vector.render(condition, self.sleeptime)
         dt = self.measure(payload)
         self.n_req += 1
         return dt
 
-    # -- hoi true/false ----------------------------------------------------
+    # -- hỏi true/false ----------------------------------------------------
     def ask(self, condition: str) -> bool:
-        """True neu <condition> dung (SQL). Bo phieu da so khi votes>1.
+        """True nếu <condition> đúng (SQL). Bỏ phiếu đa số khi votes>1.
 
-        Neu dt roi vao vung xam quanh threshold -> do lai them (tang tin cay) truoc
-        khi quyet dinh, thay vi tin ngay mot phep do nhieu.
+        Nếu dt rơi vào vùng xám quanh threshold -> đo lại thêm (tăng tin cậy) trước
+        khi quyết định, thay vì tin ngay một phép đo nhiễu.
         """
         hits = 0
         n = 0
@@ -63,16 +63,16 @@ class Oracle:
             dt = self._timed(condition)
             n += 1
 
-            # vung xam: do lai 1 lan neu ket qua khong ro rang
+            # vùng xám: đo lại 1 lần nếu kết quả không rõ ràng
             if abs(dt - self.threshold) < self._gray:
                 dt2 = self._timed(condition)
                 n += 1
-                # lay trung binh 2 lan de bot nhieu
+                # lấy trung bình 2 lần để bớt nhiễu
                 dt = (dt + dt2) / 2
 
             hits += 1 if dt >= self.threshold else 0
 
-            # dong thuan som khi votes=3: 2 phieu giong nhau trong 2 dau -> dung
+            # đồng thuận sớm khi votes=3: 2 phiếu giống nhau trong 2 đầu -> dừng
             if self.votes >= 3 and i == 1 and hits in (0, 2):
                 break
 

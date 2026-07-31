@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Shim cho lib.core.enums - sao lai NGUYEN VAN cac enum ma tamper script su dung.
+Shim cho lib.core.enums - sao lại NGUYÊN VĂN các enum mà tamper script sử dụng.
 
-Cac gia tri phai KHOP CHINH XAC voi sqlmap goc, vi mot so tamper so sanh chuoi DBMS
-(vd `if kwargs.get("dbms") == DBMS.MYSQL`). Nguon: sqlmap/lib/core/enums.py
+Các giá trị phải KHỚP CHÍNH XÁC với sqlmap gốc, vì một số tamper so sánh chuỗi DBMS
+(vd `if kwargs.get("dbms") == DBMS.MYSQL`). Nguồn: sqlmap/lib/core/enums.py
 """
 
 

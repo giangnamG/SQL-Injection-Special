@@ -1,2 +1,2 @@
-# Shim package cho tamper cua sqlmap.
-# Xem lib/core/README_SHIM.md de biet ly do va pham vi.
+# Shim package cho tamper của sqlmap.
+# Xem lib/core/README_SHIM.md để biết lý do và phạm vi.

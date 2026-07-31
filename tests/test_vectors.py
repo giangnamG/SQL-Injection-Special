@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Test cho stinger/vectors.py - nap YAML, render template, do vector bang TRUE/FALSE.
+Test cho stinger/vectors.py - nạp YAML, render template, đo vector bằng TRUE/FALSE.
 
-Dung MOCK oracle offline: gia lap mot target MySQL biet cach xu ly (if(cond,sleep,1)).
-Chay:  python tests/test_vectors.py
+Dùng MOCK oracle offline: giả lập một target MySQL biết cách xử lý (if(cond,sleep,1)).
+Chạy:  python tests/test_vectors.py
 """
 
 import os
@@ -25,13 +25,13 @@ from stinger.vectors import (
 
 # --------------------------------------------------------------------------- mock
 class MockMySQL:
-    """Gia lap target MySQL cho time-based blind - KHONG gui request that.
+    """Giả lập target MySQL cho time-based blind - KHÔNG gửi request thật.
 
-    Hieu cac vector mysql:
+    Hiểu các vector mysql:
       - (if(<cond>,sleep(N),1))            -> inline
       - (select R from (select(sleep(N-if(<cond>,0,N))))X)  -> query-sleep
-    Danh gia <cond> (chi ho tro cac dieu kien test: 1=1, 1=2, va ord(...) between a b).
-    Tra ve thoi gian: baseline + (sleep neu cond dung).
+    Đánh giá <cond> (chỉ hỗ trợ các điều kiện test: 1=1, 1=2, và ord(...) between a b).
+    Trả về thời gian: baseline + (sleep nếu cond đúng).
     """
 
     def __init__(self, secret=b"HTB{demo}", baseline=0.05):
@@ -48,14 +48,14 @@ class MockMySQL:
         m = re.search(r"sleep\(([\d.]+)", payload)
         if m:
             return float(m.group(1))
-        # query-sleep dang sleep(N-if(...)) -> lay N
+        # query-sleep dạng sleep(N-if(...)) -> lấy N
         m = re.search(r"sleep\(([\d.]+)-", payload)
         return float(m.group(1)) if m else 0.0
 
     def _eval_sleep_triggered(self, payload):
-        """True neu payload nay se lam server sleep (dieu kien inference dung)."""
-        # inline: (if(COND,sleep,1)) -> sleep khi COND dung
-        # query-sleep: sleep(N-if(COND,0,N)) -> neu COND dung: sleep(N-0)=N; sai: sleep(0)
+        """True nếu payload này sẽ làm server sleep (điều kiện inference đúng)."""
+        # inline: (if(COND,sleep,1)) -> sleep khi COND đúng
+        # query-sleep: sleep(N-if(COND,0,N)) -> nếu COND đúng: sleep(N-0)=N; sai: sleep(0)
         cond = self._extract_condition(payload)
         return self._eval_cond(cond)
 
@@ -77,8 +77,8 @@ class MockMySQL:
         # ord(substr(hex((...)),i,1)) between lo and hi
         m = re.search(r"between\s+(\d+)\s+and\s+(\d+)", cond, re.I)
         if m:
-            # can gia tri that de danh gia - test extract se lo phan nay.
-            # o day chi phuc vu confirm (1=1/1=2), tra False an toan.
+            # cần giá trị thật để đánh giá - test extract sẽ lo phần này.
+            # ở đây chỉ phục vụ confirm (1=1/1=2), trả False an toàn.
             return False
         return False
 
@@ -126,7 +126,7 @@ def test_render_randnum_randstr():
 
 
 def test_confirm_valid_vector():
-    """Vector hop le: TRUE cham, FALSE nhanh -> confirm thanh cong."""
+    """Vector hợp lệ: TRUE chậm, FALSE nhanh -> confirm thành công."""
     mock = MockMySQL(baseline=0.05)
     store = VectorStore.load()
     v = store.get_vector("mysql-inline-sleep")
@@ -137,18 +137,18 @@ def test_confirm_valid_vector():
 
 
 def test_confirm_rejects_fake_oracle():
-    """Oracle gia: LUON delay bat ke dieu kien -> phai bi loai."""
+    """Oracle giả: LUÔN delay bất kể điều kiện -> phải bị loại."""
     class AlwaysSlow:
         def measure(self, payload):
-            return 3.05  # luon cham, ke ca 1=2
+            return 3.05  # luôn chậm, kể cả 1=2
     store = VectorStore.load()
     v = store.get_vector("mysql-inline-sleep")
     res = confirm_vector(v, AlwaysSlow().measure, sleeptime=3)
-    assert res is None, "oracle luon-cham phai bi loai (FALSE khong duoi threshold)"
+    assert res is None, "oracle luôn-chậm phải bị loại (FALSE không dưới threshold)"
 
 
 def test_confirm_rejects_no_delay():
-    """Vector khong tao delay nao -> loai."""
+    """Vector không tạo delay nào -> loại."""
     class NeverSlow:
         def measure(self, payload):
             return 0.05
@@ -159,12 +159,12 @@ def test_confirm_rejects_no_delay():
 
 
 def test_detect_vector_auto():
-    """Do tu dong: mock chi hieu vector mysql inline -> phai chot dung no."""
+    """Đo tự động: mock chỉ hiểu vector mysql inline -> phải chốt đúng nó."""
     mock = MockMySQL()
     store = VectorStore.load()
     res = detect_vector(store, mock.measure, sleeptime=3, dbms="auto")
     assert res.vector.dbms == "mysql"
-    # mysql-query-sleep xep truoc inline; mock hieu ca hai -> chot cai dau tien hop le
+    # mysql-query-sleep xếp trước inline; mock hiểu cả hai -> chốt cái đầu tiên hợp lệ
     assert res.vector.name in ("mysql-query-sleep", "mysql-inline-sleep")
 
 
@@ -185,7 +185,7 @@ def test_detect_fails_when_no_vector_works():
     except VectorError:
         pass
     else:
-        raise AssertionError("phai raise khi khong vector nao dung")
+        raise AssertionError("phải raise khi không vector nào đúng")
 
 
 def _run_all():

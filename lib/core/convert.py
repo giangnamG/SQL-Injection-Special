@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Shim cho lib.core.convert - 3 ham ma tamper can: decodeHex, encodeBase64, getOrds.
-Rut gon tu sqlmap (bo phu thuoc thirdparty.six, dung chuan Python 3).
+Shim cho lib.core.convert - 3 hàm mà tamper cần: decodeHex, encodeBase64, getOrds.
+Rút gọn từ sqlmap (bỏ phụ thuộc thirdparty.six, dùng chuẩn Python 3).
 """
 
 import base64
@@ -12,7 +12,7 @@ UNICODE_ENCODING = "utf-8"
 
 
 def _get_text(value, encoding=None):
-    """bytes -> str (giong getText cua sqlmap, ban rut gon)."""
+    """bytes -> str (giống getText của sqlmap, bản rút gọn)."""
     if isinstance(value, bytes):
         return value.decode(encoding or UNICODE_ENCODING, "replace")
     return value
@@ -20,7 +20,7 @@ def _get_text(value, encoding=None):
 
 def decodeHex(value, binary=True):
     """
-    Giai ma chuoi hex -> bytes (hoac str neu binary=False).
+    Giải mã chuỗi hex -> bytes (hoặc str nếu binary=False).
 
     >>> decodeHex("313233") == b"123"
     True
@@ -46,7 +46,7 @@ def decodeHex(value, binary=True):
 
 def encodeBase64(value, binary=True, encoding=None, padding=True, safe=False):
     """
-    Base64-encode gia tri.
+    Base64-encode giá trị.
 
     >>> encodeBase64(b"123") == b"MTIz"
     True
@@ -79,7 +79,7 @@ def encodeBase64(value, binary=True, encoding=None, padding=True, safe=False):
 
 def getOrds(value):
     """
-    Tra ve danh sach ma ord() cua tung ky tu/byte.
+    Trả về danh sách mã ord() của từng ký tự/byte.
 
     >>> getOrds(u'fo\\xf6bar')
     [102, 111, 246, 98, 97, 114]

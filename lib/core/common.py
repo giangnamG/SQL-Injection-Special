@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Shim cho lib.core.common - CHI 4 ham ma tamper script su dung.
+Shim cho lib.core.common - CHỈ 4 hàm mà tamper script sử dụng.
 
-KHONG copy common.py that (4711 dong). Khao sat 76 tamper cho thay chung chi can:
+KHÔNG copy common.py thật (4711 dòng). Khảo sát 76 tamper cho thấy chúng chỉ cần:
 randomRange, randomInt, singleTimeWarnMessage, zeroDepthSearch.
 
-- randomRange/randomInt: sao logic tu sqlmap, bo nhanh seed/thread-data khong can.
-- singleTimeWarnMessage: chuyen thanh canh bao 1-lan qua warnings (khong anh huong
-  ket qua bien doi payload - chi la thong bao).
-- zeroDepthSearch: sao NGUYEN VAN (logic thuan, quan trong cho vai tamper).
+- randomRange/randomInt: sao logic từ sqlmap, bỏ nhánh seed/thread-data không cần.
+- singleTimeWarnMessage: chuyển thành cảnh báo 1-lần qua warnings (không ảnh hưởng
+  kết quả biến đổi payload - chỉ là thông báo).
+- zeroDepthSearch: sao NGUYÊN VĂN (logic thuần, quan trọng cho vài tamper).
 """
 
 import random
@@ -18,13 +18,13 @@ import warnings
 
 from lib.core.compat import xrange
 
-# nho cac message da canh bao de chi warn 1 lan (giong singleTimeLogMessage cua sqlmap)
+# nhớ các message đã cảnh báo để chỉ warn 1 lần (giống singleTimeLogMessage của sqlmap)
 _warned_flags = set()
 
 
 def randomRange(start=0, stop=1000, seed=None):
     """
-    Tra ve so nguyen ngau nhien trong [start, stop].
+    Trả về số nguyên ngẫu nhiên trong [start, stop].
 
     >>> random.seed(0); 0 <= randomRange(1, 500) <= 500
     True
@@ -35,7 +35,7 @@ def randomRange(start=0, stop=1000, seed=None):
 
 def randomInt(length=4, seed=None):
     """
-    Tra ve so nguyen ngau nhien voi so chu so cho truoc (chu so dau khac 0).
+    Trả về số nguyên ngẫu nhiên với số chữ số cho trước (chữ số đầu khác 0).
 
     >>> len(str(randomInt(6))) == 6
     True
@@ -48,7 +48,7 @@ def randomInt(length=4, seed=None):
 
 
 def singleTimeWarnMessage(message):
-    """Canh bao mot lan cho moi message (khong lam sai bien doi payload)."""
+    """Cảnh báo một lần cho mỗi message (không làm sai biến đổi payload)."""
     flag = hash(message)
     if flag not in _warned_flags:
         _warned_flags.add(flag)
@@ -57,8 +57,8 @@ def singleTimeWarnMessage(message):
 
 def zeroDepthSearch(expression, value):
     """
-    Tim vi tri xuat hien cua `value` trong `expression` o muc 0-depth (ngoai ngoac).
-    Sao NGUYEN VAN tu sqlmap - noi dung trong chuoi nhay '...' duoc coi la data, khong match.
+    Tìm vị trí xuất hiện của `value` trong `expression` ở mức 0-depth (ngoài ngoặc).
+    Sao NGUYÊN VĂN từ sqlmap - nội dung trong chuỗi nháy '...' được coi là data, không match.
 
     >>> _ = "SELECT (SELECT id FROM users WHERE 2>1) AS result FROM DUAL"; _[zeroDepthSearch(_, "FROM")[0]:]
     'FROM DUAL'

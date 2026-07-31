@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Shim cho lib.core.data - cung cap `kb` (knowledge base) GIA, dien san dung nhung
-field ma tamper doc: kb.keywords, kb.aliasName, kb.bluecoat.
+Shim cho lib.core.data - cung cấp `kb` (knowledge base) GIẢ, điền sẵn đúng những
+field mà tamper đọc: kb.keywords, kb.aliasName, kb.bluecoat.
 
-Khao sat 76 tamper: chi 3 field nay duoc doc tu kb. Dung AttribDict(keycheck=False)
-nen field la khac se tra None thay vi crash.
+Khảo sát 76 tamper: chỉ 3 field này được đọc từ kb. Dùng AttribDict(keycheck=False)
+nên field lạ khác sẽ trả None thay vì crash.
 
-kb.keywords doc tu data/txt/keywords.txt (danh sach tu khoa SQL cua sqlmap), dung boi
-randomcase/uppercase/lowercase de nhan dien tu khoa can bien doi.
+kb.keywords đọc từ data/txt/keywords.txt (danh sách từ khóa SQL của sqlmap), dùng bởi
+randomcase/uppercase/lowercase để nhận diện từ khóa cần biến đổi.
 """
 
 import os
@@ -16,12 +16,12 @@ import string
 
 from lib.core.datatype import AttribDict
 
-# object chia se ket qua runtime (giong kb cua sqlmap) - dung keycheck=False
+# object chia sẻ kết quả runtime (giống kb của sqlmap) - dùng keycheck=False
 kb = AttribDict(keycheck=False)
 
 
 def _load_keywords():
-    """Nap keywords.txt tu thu muc data/ cua repo (cung goc voi lib/)."""
+    """Nạp keywords.txt từ thư mục data/ của repo (cùng gốc với lib/)."""
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     path = os.path.join(repo_root, "data", "txt", "keywords.txt")
     try:
@@ -31,17 +31,17 @@ def _load_keywords():
                 if line.strip() and not line.strip().startswith("#")
             )
     except OSError:
-        # neu thieu file, tra set rong -> randomcase/uppercase se khong bien doi gi
-        # (an toan hon la crash)
+        # nếu thiếu file, trả set rỗng -> randomcase/uppercase sẽ không biến đổi gì
+        # (an toàn hơn là crash)
         return set()
 
 
 def _random_alias(length=4):
-    """Tao alias ngau nhien (giong kb.aliasName = randomStr() cua sqlmap)."""
+    """Tạo alias ngẫu nhiên (giống kb.aliasName = randomStr() của sqlmap)."""
     return "".join(random.choice(string.ascii_lowercase) for _ in range(length))
 
 
-# Dien san cac field tamper can:
+# Điền sẵn các field tamper cần:
 kb.keywords = _load_keywords()
 kb.aliasName = _random_alias()
 kb.bluecoat = False

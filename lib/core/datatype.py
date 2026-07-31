@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-Shim cho lib.core.datatype - cung cap `AttribDict` va `OrderedSet` ma tamper can.
+Shim cho lib.core.datatype - cung cấp `AttribDict` và `OrderedSet` mà tamper cần.
 
-- AttribDict: dict cho phep truy cap key nhu attribute. Ban rut gon (khong keo
-  thirdparty.six nhu sqlmap). Dung `keycheck=False` -> key thieu tra ve None thay vi
-  raise, tien de lam `kb` gia (tamper doc field la se nhan None, khong crash).
-- OrderedSet: sao nguyen ban tu sqlmap, chi doi import collections.abc chuan Python 3.
+- AttribDict: dict cho phép truy cập key như attribute. Bản rút gọn (không kéo
+  thirdparty.six như sqlmap). Dùng `keycheck=False` -> key thiếu trả về None thay vì
+  raise, tiện để làm `kb` giả (tamper đọc field lạ sẽ nhận None, không crash).
+- OrderedSet: sao nguyên bản từ sqlmap, chỉ đổi import collections.abc chuẩn Python 3.
 """
 
 from collections import abc as _collections
 
 
 class AttribDict(dict):
-    """Dictionary cho phep truy cap thanh vien bang attribute.
+    """Dictionary cho phép truy cập thành viên bằng attribute.
 
     >>> d = AttribDict()
     >>> d.foo = 1
@@ -56,7 +56,7 @@ class AttribDict(dict):
 
 
 class OrderedSet(_collections.MutableSet):
-    """Set giu thu tu them vao. Sao nguyen ban tu sqlmap/lib/core/datatype.py."""
+    """Set giữ thứ tự thêm vào. Sao nguyên bản từ sqlmap/lib/core/datatype.py."""
 
     def __init__(self, iterable=None):
         self.end = end = []

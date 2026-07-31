@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Test oracle.py + extract.py bang MOCK MySQL offline day du.
+Test oracle.py + extract.py bằng MOCK MySQL offline đầy đủ.
 
-Mock hieu payload vector va danh gia dieu kien SQL (length/char_length/hex/ord/substr/
-between) tren mot SECRET biet truoc -> chung minh pipeline trich xuat dung flag.
+Mock hiểu payload vector và đánh giá điều kiện SQL (length/char_length/hex/ord/substr/
+between) trên một SECRET biết trước -> chứng minh pipeline trích xuất đúng flag.
 
-Chay:  python tests/test_extract.py
+Chạy:  python tests/test_extract.py
 """
 
 import os
@@ -21,11 +21,11 @@ from stinger.extract import extract, verify, bsearch, get_number, Dialect
 
 # --------------------------------------------------------------------------- mock
 class MockMySQLFull:
-    """Gia lap MySQL: danh gia dieu kien inference tren SECRET, tra thoi gian.
+    """Giả lập MySQL: đánh giá điều kiện inference trên SECRET, trả thời gian.
 
-    Chi can lo che do 'hex' cua MySQL:
-      length((Q))                          -> so byte
-      char_length((Q))                     -> so ky tu
+    Chỉ cần lo chế độ 'hex' của MySQL:
+      length((Q))                          -> số byte
+      char_length((Q))                     -> số ký tự
       ((Q)) is not null                    -> True
       ord(substr((hex((Q))),i,1)) between lo and hi
       (Q) between 0x.. and 0x..            -> verify
@@ -33,7 +33,7 @@ class MockMySQLFull:
 
     def __init__(self, secret=b"HTB{t1m3_bl1nd}", baseline=0.02, sleeptime=3.0):
         self.secret = secret
-        self.hexs = secret.hex().upper()  # hex(content) cua MySQL tra HOA
+        self.hexs = secret.hex().upper()  # hex(content) của MySQL trả HOA
         self.baseline = baseline
         self.sleeptime = sleeptime
         self.calls = 0
@@ -92,7 +92,7 @@ class MockMySQLFull:
         if m:
             i = int(m.group(2))
             return ord(self.hexs[i - 1]) if i <= len(self.hexs) else 0
-        raise AssertionError("mock khong danh gia duoc expr: %r" % expr)
+        raise AssertionError("mock không đánh giá được expr: %r" % expr)
 
 
 def _make_oracle(mock, vector_name="mysql-inline-sleep"):
@@ -128,13 +128,13 @@ def test_extract_hex_full_flag():
 
 
 def test_extract_multibyte():
-    """Ky tu multibyte (byte >127) - che do hex phai bat duoc."""
+    """Ký tự multibyte (byte >127) - chế độ hex phải bắt được."""
     secret = "café".encode("utf-8")  # 'é' = 2 byte
     mock = MockMySQLFull(secret=secret)
     oracle, dia = _make_oracle(mock)
     data, meta = extract(oracle, "select x", dia, mode="hex")
     assert data == secret
-    assert meta["byte_len"] != meta["char_len"]  # phat hien multibyte
+    assert meta["byte_len"] != meta["char_len"]  # phát hiện multibyte
 
 
 def test_verify_matches():
@@ -145,7 +145,7 @@ def test_verify_matches():
 
 
 def test_extract_via_query_sleep_vector():
-    """Dung vector query-sleep (boc subquery) thay vi inline - van phai dung."""
+    """Dùng vector query-sleep (bọc subquery) thay vì inline - vẫn phải đúng."""
     mock = MockMySQLFull(secret=b"HTB{qs}")
     oracle, dia = _make_oracle(mock, vector_name="mysql-query-sleep")
     data, _ = extract(oracle, "select x", dia, mode="hex")
@@ -153,12 +153,12 @@ def test_extract_via_query_sleep_vector():
 
 
 def test_request_count_reasonable():
-    """So request cho flag ngan phai hop ly (~5/hex-digit)."""
+    """Số request cho flag ngắn phải hợp lý (~5/hex-digit)."""
     mock = MockMySQLFull(secret=b"AB")  # 2 byte -> 4 hex digit
     oracle, dia = _make_oracle(mock)
     extract(oracle, "select x", dia, mode="hex")
-    # 4 hex digit * ~5 + do dai/notnull ~ duoi 60
-    assert mock.calls < 60, "so request qua nhieu: %d" % mock.calls
+    # 4 hex digit * ~5 + độ dài/notnull ~ dưới 60
+    assert mock.calls < 60, "số request quá nhiều: %d" % mock.calls
 
 
 def _run_all():

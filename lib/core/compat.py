@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Shim cho lib.core.compat - chi can `xrange` (Python 2/3 compat cua sqlmap).
-Tren Python 3, xrange chinh la range.
+Shim cho lib.core.compat - chỉ cần `xrange` (Python 2/3 compat của sqlmap).
+Trên Python 3, xrange chính là range.
 """
 
 xrange = range
