@@ -1,0 +1,28 @@
+# sqlmap codebase goc (ben thu ba) - chi la nguon tham khao de copy tamper.
+# Phan can thiet da copy ra tamper/ + lib/core/ + data/txt/keywords.txt.
+sqlmap/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Test / cache
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
