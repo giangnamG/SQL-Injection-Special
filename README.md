@@ -26,11 +26,11 @@ Xem [DESIGN.md](DESIGN.md) để biết đầy đủ kiến trúc và các quy�
 ```bash
 # 1. Lưu request từ Burp ra file, chèn '*' vào vị trí inject, vd: {"id":"*"}
 # 2. Chạy:
-python -m stinger.cli -r request.txt --query "select content from final_flag limit 1"
+python main.py -r request.txt --query "select content from final_flag limit 1"
 
 # Ép DBMS / vector, dùng tamper:
-python -m stinger.cli -r request.txt --dbms mysql --vector mysql-inline-sleep
-python -m stinger.cli -r request.txt --tamper between,space2comment
+python main.py -r request.txt --dbms mysql --vector mysql-inline-sleep
+python main.py -r request.txt --tamper between,space2comment
 ```
 
 ## Cấu trúc

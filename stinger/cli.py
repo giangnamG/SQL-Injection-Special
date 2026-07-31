@@ -4,11 +4,11 @@ stinger - inline time-based blind SQLi extractor cho lab CTF.
 
 Ghep tat ca: parse Burp request -> do/chot vector (TRUE/FALSE) -> trich xuat -> verify.
 
-Vi du:
-    python -m stinger.cli -r draft/requests.txt --query "select content from final_flag limit 1"
-    python -m stinger.cli -r req.txt --dbms mysql --vector mysql-inline-sleep
-    python -m stinger.cli -r req.txt --tamper between,space2comment
-    python -m stinger.cli -r req.txt --dbms auto -v
+Vi du (chay tu thu muc root qua main.py):
+    python main.py -r draft/requests.txt --query "select content from final_flag limit 1"
+    python main.py -r req.txt --dbms mysql --vector mysql-inline-sleep
+    python main.py -r req.txt --tamper between,space2comment
+    python main.py -r req.txt --dbms auto -v
 
 Marker: chen '*' vao vi tri inject trong file request (vd {"id":"*"}).
 """
