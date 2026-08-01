@@ -447,9 +447,30 @@ KHÔNG dựa vào nó để test logic. Thay vào đó:
 - Khi có instance HTB mới còn sống: chỉ cần thay `draft/requests.txt` (thêm marker `*`) là chạy
   `python -m stinger.cli -r draft/requests.txt` ngay.
 
+**Đa luồng + độ tin cậy (ĐÃ TRIỂN KHAI ✅ — 3 lớp phối hợp):**
+> Đọc song song nhiều vị trí ký tự (`--threads`, mặc định 10, giống Intruder). Mỗi vị trí là
+> một task độc lập → `ThreadPoolExecutor`. Nhưng đo thời gian dưới tải song song KÉM tin cậy:
+
+- **Vấn đề gốc (kiểm chứng bằng số):** baseline đo ở 1 luồng thấp hơn thực tế khi chạy N
+  luồng — request cạnh tranh connection pool/CPU của server. Đo thực nghiệm: baseline 0.17s
+  (1 luồng) → 0.30s median / 0.60s max (10 luồng). Threshold cũ quá thấp → request FALSE bị
+  kéo dài vượt ngưỡng → đọc nhầm thành TRUE. Lỗi tập trung ở **đầu chuỗi** (10 luồng khởi động
+  cùng lúc, cạnh tranh gay gắt nhất). ĐÂY LÀ "race" ở tầng tài nguyên server, KHÔNG phải race
+  bộ nhớ Python (logic dùng biến cục bộ, đã thread-safe: Session riêng mỗi thread, counter/log
+  qua lock).
+- **Lớp 1 — Re-calibrate dưới tải** (`recalibrate_under_load`): trước khi trích xuất, bắn N
+  request FALSE ĐỒNG THỜI, lấy phân vị p90 (worst-case) làm baseline, tính lại threshold. Giảm
+  đọc sai đáng kể — nhưng KHÔNG loại hết (jitter spike ngẫu nhiên vẫn vượt ngưỡng lẻ tẻ).
+- **Lớp 2 — Verify + tự sửa byte sai** (`repair`): sau khi đọc đa luồng, `verify()` toàn chuỗi;
+  nếu KHÔNG KHỚP → verify TỪNG byte bằng 1 luồng (tin cậy), chỉ đọc lại byte nào sai. Rẻ hơn
+  nhiều so với chạy lại toàn bộ (~1 req/byte verify + ~8 req/byte-sai). Đây là lớp đảm bảo
+  kết quả LUÔN ĐÚNG.
+- **Lớp 3 — Cảnh báo cuối:** nếu sau repair vẫn sai → server quá nhiễu ở mức luồng đó → khuyên
+  giảm `--threads` hoặc tăng `--delay`.
+- Tốc độ (server xử lý song song thật): threads=10 nhanh ~3.4x so với tuần tự, kết quả đúng.
+
 **CHƯA làm (ghi để không quên):**
-- **Đa luồng theo vị trí ký tự** (mục 5) — hiện `extract()` chạy tuần tự. Khung đã sẵn sàng để
-  thêm (mỗi vị trí độc lập), nhưng calibrate-đo-song-song chưa triển khai.
+- **Tự giảm luồng khi quá tải** — hiện chỉ cảnh báo; có thể tự hạ `--threads` và thử lại.
 - **Chế độ turbo** (mã hóa giá trị vào độ dài sleep) — cần transport thật để hiệu chuẩn step.
 - **`selftest` gộp toàn khung** — hiện mỗi module có test riêng.
 

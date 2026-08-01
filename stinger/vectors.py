@@ -93,6 +93,22 @@ class VectorStore:
             raise VectorError("không có DBMS '%s' trong kho vector" % dbms)
         return self.data[dbms].get("dialect", {})
 
+    def default_query(self, dbms: str, kind: str = "version") -> str:
+        """Trả về query mặc định theo DBMS (version/database/user/hostname).
+
+        Mỗi DBMS có cú pháp riêng (vd MySQL version() vs MSSQL @@version). Dùng khi
+        người dùng không truyền --query. Raise VectorError nếu DBMS/kind không có.
+        """
+        if dbms not in self.data:
+            raise VectorError("không có DBMS '%s' trong kho vector" % dbms)
+        queries = self.data[dbms].get("queries", {})
+        if kind not in queries:
+            raise VectorError(
+                "DBMS '%s' không có query mặc định '%s' (có: %s)"
+                % (dbms, kind, ", ".join(queries.keys()) or "không có")
+            )
+        return queries[kind]
+
     def vectors_for(self, dbms: str) -> list[Vector]:
         if dbms not in self.data:
             raise VectorError("không có DBMS '%s' trong kho vector" % dbms)
